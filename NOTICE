@@ -1,0 +1,69 @@
+nord-convert
+Copyright (C) 2026 Thilko Limbeck
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU Affero General Public License as published by the Free
+Software Foundation, either version 3 of the License, or (at your option) any
+later version. See LICENSE.
+
+Nord and Nord Stage are trademarks of Clavia DMI AB. This project is not
+affiliated with, endorsed by, or supported by Clavia.
+
+Third-party material
+====================
+
+OpenNord (AGPL-3.0-or-later)
+  https://github.com/simonflore/opennord, commit ed66f7f.
+  nordconv/_layout_ns3.py, _layout_ns4.py, _tables_ns3.py and _tables_ns4.py
+  are generated from OpenNord's TypeScript tables by tools/gen_layouts.py.
+  The CBIN container rules, block-chain decoding, Stage 3 format fix-ups
+  (nordconv/source.py) and parts of the mapping follow OpenNord's code
+  (src/lib/clavia, src/lib/ns3, src/lib/ns4, src/lib/migrate).
+
+ns4decode by Randy, with ns4gui by guyd789 (MIT)
+  OpenNord's Stage 4 offset map, value tables and name tables, which reach
+  nordconv/_layout_ns4.py and nordconv/_tables_ns4.py, are ported from
+  ns4decode. templates/regressionTest.ns4p is ns4decode's regression fixture.
+
+  MIT License
+
+  Copyright (c) 2024 Randy
+  Copyright (c) 2025 guyd789 (Nord User Forum) & Randy
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+ns3-program-viewer by Christian Florentz (GPL-3.0-or-later)
+  https://github.com/chris55/ns3-program-viewer, commit 55105f4.
+  Consulted as format documentation for the Stage 3; no code is copied into
+  the converter or the web app. web/test/fixtures/ns3/ holds copies of its
+  test fixtures (the .ns3f programs in its test/ns3 folder), unchanged. They
+  are test data only: the web engine's parity test reads them, and
+  web/test/golden/golden.json holds the Python converter's results for them,
+  plus damaged and edited variants of one of them as test inputs.
+  They are not part of the converter, the web build or its output. Their
+  licence is web/test/fixtures/ns3/LICENSE-ns3-program-viewer.
+
+Fonts in web/public/fonts/ (SIL Open Font License 1.1)
+  Self-hosted woff2 subsets, as served by Google Fonts, used by the web app.
+  The full licence texts are in web/public/fonts/LICENSES/.
+  - Funnel Sans: Copyright 2024 The Funnel Project Authors
+    (https://github.com/Dicotype/Funnel)
+  - IBM Plex Mono: Copyright 2017 IBM Corp., with Reserved Font Name "Plex"
+  - Doto: Copyright 2024 The Doto Project Authors
+    (https://github.com/oliverlalan/Doto)

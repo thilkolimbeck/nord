@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stage 3 → Stage 4 program converter</title>
+    <meta
+      name="description"
+      content="Turn a Nord Stage 3 program (.ns3f) into a Nord Stage 4 program (.ns4p) in your browser. Your file never leaves the page."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="site-header">
+        <p class="wordmark">st3 → st4 <span class="muted">program converter</span></p>
+        <nav aria-label="Sections">
+          <ul class="nav">
+            <li><a href="#convert"><span class="num">01</span> convert</a></li>
+            <li><a href="#how"><span class="num">02</span> how</a></li>
+            <li><a href="#limits"><span class="num">03</span> limits</a></li>
+            <li><a href="#source"><span class="num">04</span> source</a></li>
+          </ul>
+        </nav>
+      </header>
+
+      <main>
+        <section class="intro" id="convert" aria-labelledby="headline">
+          <h1 id="headline">Turn a Nord Stage 3 program into a Stage 4 program. In your browser.</h1>
+          <p class="sub">
+            Your file never leaves this page. Not yet tested on a real Stage 4: load results into a free slot.
+          </p>
+
+          <div class="instrument">
+            <div class="strip" id="strip" data-state="idle">
+              <div class="strip-legend">
+                <span>st-34&nbsp;&nbsp;program converter</span>
+                <span id="engine-legend">engine · stage 3 3.00–3.04 → stage 4 3.13</span>
+              </div>
+
+              <div class="strip-grid">
+                <div class="cell cell-in">
+                  <p class="legend" id="legend-in">program in</p>
+                  <input class="visually-hidden" type="file" id="file" accept=".ns3f" aria-describedby="legend-in" />
+                  <label class="slot" for="file" id="slot">
+                    <span>drop .ns3f</span>
+                    <span>or <span class="choose">choose</span></span>
+                  </label>
+                </div>
+
+                <div class="cell cell-display">
+                  <p class="legend">display</p>
+                  <div class="display" role="group" aria-label="display">
+                    <p class="display-line display-name" id="display-name">—</p>
+                    <p class="display-line display-version" id="display-version">ns3f → ns4p 3.13</p>
+                    <p class="display-line display-state" id="display-state" aria-live="polite">insert program</p>
+                  </div>
+                </div>
+
+                <div class="cell cell-result">
+                  <p class="legend">result</p>
+                  <dl class="meters">
+                    <div class="meter" data-kind="warn">
+                      <dt>warn</dt>
+                      <dd class="segments" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></dd>
+                      <dd class="count" id="count-warn">0</dd>
+                    </div>
+                    <div class="meter" data-kind="notes">
+                      <dt>notes</dt>
+                      <dd class="segments" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></dd>
+                      <dd class="count" id="count-notes">0</dd>
+                    </div>
+                    <div class="meter" data-kind="error">
+                      <dt>error</dt>
+                      <dd class="segments" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></dd>
+                      <dd class="count" id="count-error">0</dd>
+                    </div>
+                  </dl>
+                </div>
+
+                <div class="cell cell-keys">
+                  <p class="legend">keys</p>
+                  <div class="keys">
+                    <button type="button" class="key key-convert" id="key-convert" disabled>
+                      <span class="led" aria-hidden="true"></span><span class="key-label">convert</span>
+                    </button>
+                    <button type="button" class="key" id="key-save" disabled>
+                      <span class="led" aria-hidden="true"></span><span class="key-label">save</span>
+                    </button>
+                    <button type="button" class="key" id="key-clear" disabled>
+                      <span class="led" aria-hidden="true"></span><span class="key-label">clear</span>
+                    </button>
+                    <button type="button" class="key" id="key-notes" aria-pressed="false" disabled>
+                      <span class="led" aria-hidden="true"></span><span class="key-label">notes</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="printout" aria-labelledby="printout-legend">
+              <p class="legend printout-legend" id="printout-legend">
+                print-out · <span id="printout-warnings">0 warnings</span> ·
+                <button type="button" class="text-button" id="printout-notes" aria-pressed="false" disabled>
+                  0 notes on switched-off parts
+                </button>
+              </p>
+              <ol class="printout-lines" id="printout-lines">
+                <li><span class="line-no" aria-hidden="true">001</span><span class="line-text">nothing printed yet</span></li>
+              </ol>
+            </div>
+          </div>
+        </section>
+
+        <section class="info" id="how" aria-labelledby="how-heading">
+          <h2 class="info-heading" id="how-heading"><span class="num">02</span> how it works</h2>
+          <div class="info-copy">
+            <p>
+              The converter runs locally, in your browser. Nothing is uploaded: the page reads your file, converts it
+              and hands the result back as a download.
+            </p>
+            <p>
+              Both panels convert. Panel A becomes layers A and panel B becomes layers B, in scene I. Values go through
+              the Stage 4's own tables, and a donor template fills in what the Stage 3 file cannot say.
+            </p>
+          </div>
+        </section>
+
+        <section class="info" id="limits" aria-labelledby="limits-heading">
+          <h2 class="info-heading" id="limits-heading"><span class="num">03</span> limits</h2>
+          <div class="info-copy">
+            <p>
+              Not everything has a place on the Stage 4. Synth presets, pianos and samples are stored by name, and the
+              Stage 4 does not know most of them; morphs and oscillator configurations without a Stage 4 counterpart
+              are not converted either. The print-out lists every setting that is lost or approximated.
+            </p>
+            <p>
+              <a href="https://github.com/thilkolimbeck/nord-convert#limitations">The limitation tables in the README</a>
+              have the full list.
+            </p>
+          </div>
+        </section>
+
+        <section class="info" id="source" aria-labelledby="source-heading">
+          <h2 class="info-heading" id="source-heading"><span class="num">04</span> source</h2>
+          <div class="info-copy">
+            <p>
+              AGPL-3.0. The source is on
+              <a href="https://github.com/thilkolimbeck/nord-convert">GitHub</a>.
+            </p>
+            <p>
+              Built on the work of opennord, ns4decode (MIT) and ns3-program-viewer.
+            </p>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <p class="legend">
+          agpl-3.0 · <a href="https://github.com/thilkolimbeck/nord-convert">source on github</a> · not affiliated with
+          clavia or nord
+        </p>
+      </footer>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

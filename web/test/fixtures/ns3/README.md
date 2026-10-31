@@ -1,0 +1,1 @@
+The .ns3f files below are the test fixtures of ns3-program-viewer by Christian Florentz (https://github.com/chris55/ns3-program-viewer, test/ns3 at commit 55105f4), GPL-3.0-or-later: see LICENSE-ns3-program-viewer.

@@ -1,0 +1,23 @@
+{
+  "name": "nord-convert-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Nord Stage 3 to Stage 4 program converter, TypeScript engine for the browser",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=22.14"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "gen": "python3 -I ../tools/gen_layouts.py \"${OPENNORD:?set OPENNORD to an opennord checkout}\" && python3 -I ../tools/make_golden.py"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vite": "8.3.4"
+  }
+}

@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+out/
+web/node_modules/
+web/dist/
+
+# The private sample program pair and everything that describes it: kept on disk, never published.
+presets/
+web/test/fixtures/presets/
+web/test/golden/golden-local.json
+docs/analysis/
