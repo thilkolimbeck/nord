@@ -221,6 +221,13 @@ The site is built for the base path `/nordconvert/` (`base` in
 that path on any static host; nothing runs on the server. The engine version in
 the page comes from `web/package.json`. Design spec: `docs/web-design.md`.
 
+The live copy at https://thilkolimbeck.com/nordconvert is a Vercel project
+(root directory `web`) that the portfolio proxies. `web/vercel.json` gives
+it its own security headers, because a proxied response keeps only the
+upstream's headers: a strict CSP (`default-src 'none'`, same-origin scripts,
+styles and fonts only, no inline code), so the page cannot load code from or
+connect to any other host.
+
 ## Licence
 
 AGPL-3.0-or-later (see `LICENSE`). The layouts and tables derive from
