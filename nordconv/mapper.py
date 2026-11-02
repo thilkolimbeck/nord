@@ -112,19 +112,6 @@ class Mapper:
             value = clamped
         self.set(dst, value)
 
-    def guess(self, src: str, dst: str, where: str) -> None:
-        """Copy a parameter whose Stage 4 scale is unverified.
-
-        A source at its default maps to the Stage 4 default, so untouched
-        settings stay neutral; any other value is copied and reported.
-        """
-        if self.is_default(src):
-            self.set(dst, NS4_LAYOUT.fields[dst].default)
-            return
-        self.copy(src, dst, where)
-        self.warn(where, f'{short(src)} {self.values[src]} copied as is; '
-                         'the Stage 4 scale of this parameter is unverified')
-
     def drop(self, where: str, keys: Iterable[str], reason: str) -> None:
         """Report fields with no Stage 4 counterpart: one warning naming every non-default one."""
         changed = [f'{short(k)}={self._show(k)}' for k in keys if not self.is_default(k)]

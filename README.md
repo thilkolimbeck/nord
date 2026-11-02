@@ -49,7 +49,8 @@ WARNING: My Program.ns3f: Panel A effects: ampBass=20 not converted: in filter m
 A setting at its Stage 3 default is never reported. An all-default program
 converts without a single warning.
 The mappings listed under "Copied without proof" (see Limitations) are never
-reported.
+reported, nor are the rules Nord Sound Manager confirms (see How it maps),
+unless they lose something or depend on the Stage 4's library.
 
 Settings of a section that is switched off in the source (an engine that is
 off, an inactive panel, an effect unit that is off or whose source engine
@@ -61,16 +62,49 @@ section on, but their reports are hidden: the summary line counts them, and
 
 - **Panels to layers.** Panel A becomes layer A and Panel B layer B of the
   organ, piano and synth sections in scene I. A layer plays when its panel is
-  active and the engine is on. Scene II and synth layer C stay off.
-- **Shared tables copy.** Envelope times, filter frequency, levels, effect
-  amounts and the like use the same display tables on both models, so their
-  values copy. Bipolar values are re-encoded (offset to two's complement).
+  active and the engine is on. Synth layer C stays off. Scene II keeps the
+  Stage 4 defaults (piano layer A on), as Nord Sound Manager leaves it, with
+  one deviation: its piano section stays off when piano A has no converted
+  piano, so scene II never plays a piano the program does not name. When the
+  Stage 3 piano A is off, scene II still plays it; that is reported.
+- **Shared tables copy.** Envelope times, levels, effect amounts and the like
+  use the same display tables on both models, so their values copy. Bipolar
+  values are re-encoded (offset to two's complement).
+- **Nord Sound Manager's rules.** Three Nord Sound Manager conversions (kept
+  private) confirm these: filter cutoff +24 steps (two octaves) when key
+  tracking is on; resonance × 3/4 and reverb amount × 7/8, rounded down (a
+  negative resonance morph toward zero, seen once); cutoff and resonance
+  pedal morphs with the same rules (wheel and aftertouch use the same fields,
+  see Copied without proof); osc ctrl 36 on a Super oscillator; Saw + 4
+  Detune → Pure Saw; delay tempo and rotor and horn angles (one program)
+  copy; per-layer effects for piano and synth; the keyboard hold switch of
+  synth layers A and B copies.
+- **Keyboard zones.** Each zone becomes the Stage 4 value that plays the same
+  zones under the active split points; among several, the one that also
+  shows them with all three split points on, as Nord Sound Manager picks.
+- **Name hashes.** The Stage 3 stores piano and sample ids offset-encoded:
+  Stage 4 id = Stage 3 id + 0x80000001 (mod 2^32), so its "none" 0x7FFFFFFF
+  becomes 0. A piano Nord Sound Manager is seen to replace gets its
+  replacement (Royal Grand 3D XL's legacy id → its Stage 4 id, HonkyTonkUpright
+  Lrg → Amber Upright XL, seen once; entry 0); another id the Stage 4 piano
+  list knows is kept and reported. A Sample oscillator (one seen) becomes a
+  Stage 4 sample layer with the same sample, reported, because the sample
+  must be on the Stage 4.
+- **Extern.** Each panel's bank, program and control pedal switch go to the
+  synth layer of that panel, with the send-on-load switch of the selected
+  parameter (CC, PC or Vol), as Nord Sound Manager copies them. The velocity
+  curve, the wheel, aftertouch, swell and volume pedal switches and the CC
+  value go along too (same names and ranges, see Copied without proof).
+  Extern stays off on the layer and the MIDI channel is a Stage 4 setting, as
+  Nord Sound Manager does; both are reported.
 - **Enums by label.** Split notes (the Stage 4 adds C2 at the bottom), voice
   mode, filter types, effect types, amp types and reverb types are matched by
   name. "1" variants (Room 1, Chorus 1, ...) become the Stage 4 base type, "2"
   variants its variation.
 - **Mod envelope.** The Stage 3 mod envelope becomes the filter envelope
-  (filter mod +60 = amount 127). When osc mod is positive it is also copied to
+  (filter mod +60 = amount 127, rounded down). With filter mod at 0 the filter
+  envelope keeps the attack but gets decay and release 127 and velocity on, as
+  Nord Sound Manager writes. When osc mod is positive the mod envelope is also copied to
   the osc envelope, with the same -60..+60 amount. The filter Mod knob is the
   velocity amount left of centre, which has no Stage 4 counterpart (see
   below); the osc Mod knob is the LFO amount left of centre.
@@ -86,8 +120,10 @@ section on, but their reports are hidden: the summary line counts them, and
 - **Template.** About a fifth of a Stage 4 file is not decoded, so outputs are
   patched into a donor program (`templates/regressionTest.ns4p`, MIT, from
   ns4decode). Before use every known field is reset to its Stage 4 default and
-  every section and layer is switched off, so nothing of the donor's sound
-  leaks. Undecoded bits stay as the donor has them.
+  every scene I section and layer is switched off, so nothing of the donor's
+  sound leaks. Undecoded bits stay as the donor has them, except three small
+  fields Nord Sound Manager always writes the same way (2 bits = 1 in each
+  synth layer, 3 bits = 5 in the organ, 2 bits = 0 in each synth sound).
 
 ## Limitations
 
@@ -96,30 +132,40 @@ section on, but their reports are hidden: the summary line counts them, and
 | Stage 3 setting | Field | Why |
 |---|---|---|
 | Synth preset reference | `synthCommonA.presetNameHash` | Stage 3 synth presets are not in the Stage 4 library; the sound itself converts parameter by parameter |
-| Synth sample | `synthA.smpNameHash` | no Stage 3 to Stage 4 sample catalogue yet; pick a sample on the Stage 4 |
-| Piano sound unknown to the Stage 4 | `pianoA.nameHash` | Stage 3 and Stage 4 piano ids differ; kept only when the Stage 4 table has the id |
+| Sample of an oscillator not on the Sample bank | `synthA.smpNameHash` | only a Sample oscillator takes its sample along (as a Stage 4 sample layer) |
+| Piano sound unknown to the Stage 4 | `pianoA.nameHash` | the decoded id is not in the Stage 4 piano list |
 | Arpeggiator range | `synthA.arpRange` | the Stage 4 range scale is unknown |
 | Amp dry/wet in LP24/HP24 filter mode | `effectsA.ampBass` | no confirmed Stage 4 field |
 | Inactive organ drawbar preset | `organPresetIIA.db1` | a Stage 4 organ layer holds one preset |
 | Rotary on piano or synth | `effectsA.leslieEnable` | only the Stage 4 organ has a rotary |
 | Second panel's organ effects | `effectsB.fx1Enable` | one Stage 4 organ effects block |
-| Osc 2 pitch | `synthA.dualOscDetune` | the Stage 4 analog oscillators have no second-oscillator pitch |
+| Osc 2 pitch | `synthA.dualOscDetune` | the Stage 4 analog oscillators and sample layers have no second-oscillator pitch |
 | Filter velocity amount (filter Mod left of centre) | `synthA.fltMod` | the Stage 4 filter has only a velocity switch for its envelope, no velocity amount |
 | Dual keyboard | `common.dualKbdEnable` | the Stage 4 handles a second keyboard differently |
-| Extern section | `externA.enable` | lives in the Stage 4 synth layers; not in Phase 1 |
+| Extern on/off and MIDI channel | `externA.enable` | the values go to the synth layer with extern off; switch it on there, set the channel on the Stage 4 |
+| Extern zone, octave, pitch stick, sustain, volume value, CC number, unselected send-on-load switches | `externA.kbZone` | no Stage 4 extern setting; the CC number has another range (scale unverified); the Stage 4 has one send-on-load switch |
 | Mixer audio routing | `mixerA.audioRouteProg` | different routing model |
-| Morph assignments | `synthA.fltFreq.morphWheel` | the Stage 4 morph encoding is not mapped yet |
+| Morph assignments other than filter cutoff and resonance | `synthA.fltLFOAmt.morphWheel` | the Stage 4 morph encoding is not mapped yet |
 
 ### Approximated (converted, and reported)
 
 - Oscillators: the hand table covers PURE (no configuration), SYNC (3 Sync),
-  SHAPE (2 Shape: triangle, saw, square), Saw + 4 Detune → Multi Saw,
+  SHAPE (2 Shape: triangle, saw, square), Saw + 4 Detune → Pure Saw (as Nord
+  Sound Manager converts it; the detuned second oscillator is lost),
   Saw + 8 MixSqr with osc 2 at Sub → Sub Square Saw, and the Super waves. Any
-  other configuration becomes the Pure version of the base wave. Wave, Formant
-  and Sample banks keep the Stage 4 default wave.
-- Osc ctrl is copied as is, though what it controls depends on the oscillator.
-- Delay time and piano touch use scales nobody has verified: a default value
-  maps to the Stage 4 default, any other value is copied and reported.
+  other configuration becomes the Pure version of the base wave. Wave and
+  Formant banks, and a Sample bank without a sample, keep the Stage 4 default
+  wave.
+- Osc ctrl is copied as is, though what it controls depends on the oscillator
+  (on a sample layer it is unverified whether it is used); a Super oscillator
+  gets 36, as Nord Sound Manager writes.
+- Pianos: HonkyTonkUpright Lrg becomes Amber Upright XL, and a substituted
+  piano gets entry 0, as Nord Sound Manager converts it. Any other piano the
+  Stage 4 piano list knows keeps its id, though Nord Sound Manager may
+  substitute a different one.
+- A Sample oscillator refers to its sample by id: the sample must be on the
+  Stage 4 (restore or relink it in Nord Sound Manager). Its fast attack is lost.
+- Piano touch 3 becomes 2 (the Stage 4 has three settings).
 - The filter LFO amount and a negative osc mod (LFO amount) go to the Stage 4
   LFO, which has one destination; the filter LFO wins, the osc mod is then
   reported as lost. Depth scaling is unverified, so the amount is reported.
@@ -132,7 +178,11 @@ section on, but their reports are hidden: the summary line counts them, and
 - The organ vibrato/chorus selector (one on the Stage 3) sets all three Stage 4
   selectors: B3 in the same V1 C1 V2 C2 V3 C3 order, Vox and Farfisa by the
   labels the Stage 3 shows for them (a C position reads as the next V or C
-  step). C3 has no Vox setting; it is reported when a Vox plays.
+  step). C3 has no Vox setting; it is reported when a Vox plays. Open
+  difference: Nord Sound Manager keeps the Stage 4 defaults for Vox (V3) and
+  Farfisa (V2) and sets only B3 (seen with V1 in all three conversions).
+- Scene II plays piano layer A even when the Stage 3 piano A is off (the
+  Stage 4 default, kept as Nord Sound Manager does).
 - Zones that cannot be played with the active split points become the whole
   keyboard.
 - Format 3.00 files: a free-running delay time stays on the old 0-127 scale.
@@ -143,18 +193,27 @@ section on, but their reports are hidden: the summary line counts them, and
 These copy directly; the reasoning is sound but no hardware or paired file
 has confirmed it: glide, arpeggiator rate and direction, organ vibrato
 position order, percussion switches, compressor amount, reverb Bright →
-BRIGHT, the per-layer effects mode for a section with converted layers, Panel B
-focus → layer B focus, keyboard hold, piano soft release, string resonance
-and pedal noise (the same bits on both models), rotary speed and stop mode
-(the Stage 3 packs both into one field). A sample program pair (kept private)
-confirms the container, the block chain, the panel-to-layer structure and about
-30 values; its Stage 4 file was edited by hand, so it is not ground truth for
-values.
+BRIGHT, Panel B focus → layer B focus, keyboard hold switched on, piano
+touch other than 0 (only 0 was seen), piano soft release, string resonance
+and pedal noise (the same bits on both models),
+rotary speed and stop mode (the Stage 3 packs both into one field), the
+filter cutoff and resonance morphs on wheel and aftertouch (the same fields
+as the pedal's, which is confirmed), and the extern velocity curve, wheel,
+aftertouch, swell and volume pedal switches and CC value (same names and
+ranges). A sample
+program pair (kept private) confirms the container, the block chain, the
+panel-to-layer structure and about 30 values; its Stage 4 file was edited by
+hand, so it is not ground truth for values. Three Nord Sound Manager
+conversions (kept private) now confirm the rules listed under How it maps,
+each seen at least twice or exact by arithmetic, except four seen once: the
+HonkyTonkUpright Lrg substitute, the Sample oscillator layer, a negative
+resonance morph rounded toward zero and the rotor and horn angles. Switching
+the scene II piano off without a converted piano A is the converter's own
+choice.
 
 ### Not read
 
-Rotor and horn angles (a snapshot of the rotor at save time, not a setting),
-and the Dual-KB style while Dual KB is off.
+The Dual-KB style while Dual KB is off.
 
 ## Development
 

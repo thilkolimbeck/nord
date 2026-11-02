@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 from nordconv.cli import main
-from nordconv.program import Ns3Program, Ns4Program
+from nordconv.program import Ns4Program
 from tests.helpers import NS3_SAMPLE, ROOT, TEMPLATE, needs_sample, sha256
 
 
@@ -84,9 +84,9 @@ class Cli(unittest.TestCase):
         self.assertNotIn('switched off in the Stage 3 program', self.log)
         self.assertIn('reports about switched-off sections hidden, see -v', self.log)
         self.assertEqual(self.run_cli(str(self.src), '--force', '-v'), 0)
-        piano = Ns3Program.from_file(self.src).value('pianoA.nameHash')  # the sample's piano A is off
-        self.assertIn(f'Panel A piano: nameHash=0x{piano:08X}', self.log)
-        self.assertIn('switched off in the Stage 3 program', self.log)
+        # The sample's piano A is off, so its zone report (its only one) is a note.
+        self.assertTrue(any('Panel A piano: zones ' in line and 'set to the whole keyboard (switched off in the '
+                            'Stage 3 program)' in line for line in self.log.splitlines()), self.log)
 
     def test_output_has_a_normal_file_mode(self):
         self.assertEqual(self.run_cli(str(self.src)), 0)

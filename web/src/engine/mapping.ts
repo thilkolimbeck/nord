@@ -8,8 +8,8 @@
  * field no rule reads is swept up at the end and reported if it is not at its default.
  */
 import { SPLIT_NOTE } from './generated/tables-ns3.ts';
-import { FIELD_VALUE_TABLE, VALUE_TABLES } from './generated/tables-ns4.ts';
-import { NS3_LAYOUT } from './layout.ts';
+import { FIELD_VALUE_TABLE, PIANO_NAMES, VALUE_TABLES } from './generated/tables-ns4.ts';
+import { fieldOf, NS3_LAYOUT, NS4_LAYOUT } from './layout.ts';
 import { mapOrgan, mapPiano, mapSynth } from './map-engines.ts';
 import { mapEffects, mapRotary, organFxOwner, SRC_ORGAN, SRC_PIANO, SRC_SYNTH, type Panel } from './map-fx.ts';
 import { Mapper, short } from './mapper.ts';
@@ -30,11 +30,25 @@ const SECTIONS: ReadonlyArray<readonly [string, string, string]> = [
   ['synthCommon{p}.enable', 'synth.layerEnableSyn_I', 'common.sectionEnableSyn_I'],
 ];
 const FOCUS_KEYS = ['organ.layerFocusOrg_I', 'piano.layerFocusPno_I', 'synth.layerFocusSyn_I'];
-// Per-layer effects (0) rather than one block for the section (1, the default).
-const PER_LAYER_FX: ReadonlyMap<string, string> = new Map([
-  ['piano.layerEnablePno_I', 'piano.effectsSectionModePno'],
-  ['synth.layerEnableSyn_I', 'synth.effectsSectionModeSyn']]);
-const SNAPSHOTS = ['common.leslieRotorAngle', 'common.leslieHornAngle'];
+// Per-layer effects (0) rather than one block for the section (1, the default): the two Stage 3
+// panels have their own effects, and Nord Sound Manager writes 0 whether the section plays or not.
+const PER_LAYER_FX = ['piano.effectsSectionModePno', 'synth.effectsSectionModeSyn'];
+// Scene II keeps the Stage 4 defaults, as Nord Sound Manager does: piano section on with layer A.
+const SCENE_II_PIANO = 'common.sectionEnablePno_II';
+const SCENE_II_PIANO_LAYERS = 'piano.layerEnablePno_II';
+const SNAPSHOTS: ReadonlyArray<readonly [string, string]> = [
+  ['common.leslieRotorAngle', 'organ.leslieRotorAngle'], ['common.leslieHornAngle', 'organ.leslieHornAngle']];
+// Stage 3 extern -> the same panel's Stage 4 synth layer, same name and range (Nord Sound Manager copies
+// bank, program and control pedal; the others are the same fields, unproven).
+const EXTERN_COPY: ReadonlyArray<readonly [string, string]> = [
+  ['velCurve', 'externVelCurve'], ['modWheelEnable', 'externModWheelEnable'],
+  ['aftertouchEnable', 'externAftertouchEnable'], ['ctrlPedalEnable', 'externCtrlPedalEnable'],
+  ['swellPedalEnable', 'externSwellPedalEnable'], ['volPedalEnable', 'externVolPedalEnable'],
+  ['bcValue_LSB', 'externBCValue_LSB'], ['bcValue_MSB', 'externBCValue_MSB'], ['pcValue', 'externPCValue'],
+  ['ccValue', 'externCCValue1']];
+// The Stage 4 has one send-on-load switch: Nord Sound Manager takes the one of the selected parameter.
+const EXTERN_SEND_ON_LOAD = ['sendOnLoadCC', 'sendOnLoadPC', 'sendOnLoadVol']; // paramSelect 0 CC, 1 PC, 2 Vol
+const EXTERN_LOST = ['kbZone', 'octaveShift', 'pitchStickEnable', 'sustainEnable', 'volValue'];
 const VOX = 1;
 const FARFISA = 2;
 // The Stage 4 keeps one vibrato setting per organ model: Vox V1/V2/V3 = 0/1/2, Farfisa V1/V2/C2/C3 = 0/1/2/3.
@@ -86,6 +100,7 @@ export function mapProgram(program: Ns3Program): MappingResult {
     mapExternAndMixer(m, p, active[p]);
   }
   mapKbdHold(m);
+  mapSceneTwo(m, plays);
   const heard = activity(m.values, plays, active);
   dropMorphs(m, heard);
   const unhandled = Array.from(NS3_LAYOUT.fields.keys()).filter((k) => !m.read.has(k));
@@ -170,21 +185,42 @@ function mapCommon(m: Mapper): void {
   } else {
     m.skip(['common.dualKbdStyle']); // only matters while Dual KB is on
   }
-  m.skip(SNAPSHOTS); // rotor positions at save time, not settings
+  // Rotor positions at save time; Nord Sound Manager copies them.
+  for (const [src, dst] of SNAPSHOTS) m.copy(src, dst, w);
   if (m.v('common.slotFocus')) {
     for (const key of FOCUS_KEYS) m.set(key, 1);
   }
 }
 
-/** Scene I layer and section switches; everything else stays off (neutral template). */
+/** Scene I layer and section switches, and per-layer effects for piano and synth. */
 function mapSections(m: Mapper, plays: Plays): void {
   for (const [engine, maskKey, sectionKey] of SECTIONS) {
     let mask = 0;
     for (const p of PANELS) if (playsOf(plays, engine, p)) mask += LAYER_BITS[p];
     m.set(maskKey, mask);
     m.set(sectionKey, Number(mask > 0));
-    const modeKey = PER_LAYER_FX.get(maskKey);
-    if (mask && modeKey !== undefined) m.set(modeKey, 0);
+  }
+  for (const key of PER_LAYER_FX) m.set(key, 0);
+}
+
+/**
+ * Scene II stays at the Stage 4 defaults, but its piano only plays a piano the converter wrote.
+ * Nord Sound Manager always leaves the scene II piano on; a layer without a converted piano would
+ * play whatever its default id stands for, so that section is switched off instead.
+ * A scene II layer whose Stage 3 piano is off gets a warning, as its own reports are notes.
+ */
+function mapSceneTwo(m: Mapper, plays: Plays): void {
+  const layers = fieldOf(NS4_LAYOUT, SCENE_II_PIANO_LAYERS).default;
+  if (PANELS.some((p) => layers & LAYER_BITS[p] && !m.edits.get(`piano${p}.nameHash`))) {
+    m.set(SCENE_II_PIANO, 0);
+    return;
+  }
+  for (const p of PANELS) {
+    if (layers & LAYER_BITS[p] && !playsOf(plays, SECTIONS[1]![0], p)) {
+      const name = PIANO_NAMES[m.edits.get(`piano${p}.nameHash`)!];
+      m.warn('Scene II', `piano layer ${p} (${name}) plays, as Nord Sound Manager leaves scene II; `
+        + `it holds the piano of Stage 3 Panel ${p}, which is off`);
+    }
   }
 }
 
@@ -220,27 +256,39 @@ function mapOrganVibrato(m: Mapper, organPlays: Readonly<Record<Panel, boolean>>
 /** Stage 3 hold per panel -> Stage 4 hold for the section plus a per-layer include switch. */
 function mapKbdHold(m: Mapper): void {
   const holds: Record<Panel, number> = { A: m.v('synthA.kbdHold'), B: m.v('synthB.kbdHold') };
-  if (holds.A || holds.B) {
-    m.set('synth.kbdHoldEnableCommon', 1);
-    for (const p of PANELS) m.set(`synth${p}.kbdHoldEnableLayer`, holds[p]);
-  }
+  // Always, as Nord Sound Manager does; layer C keeps the Stage 4 default.
+  for (const p of PANELS) m.set(`synth${p}.kbdHoldEnableLayer`, holds[p]);
+  if (holds.A || holds.B) m.set('synth.kbdHoldEnableCommon', 1);
 }
 
+/** Extern values -> synth layer p with extern left off (as Nord Sound Manager does); mixer reported. */
 function mapExternAndMixer(m: Mapper, p: Panel, active: boolean): void {
   const keys = Array.from(NS3_LAYOUT.fields.keys());
-  const extern = keys.filter((k) => k.startsWith(`extern${p}.`) && !k.includes('.morph'));
-  m.section(active && Boolean(m.v(`extern${p}.enable`)), () =>
-    m.drop(`Panel ${p} extern`, extern,
-      'Phase 1 does not convert the extern section (it lives in the Stage 4 synth layers)'));
+  const x = `extern${p}`;
+  const w = `Panel ${p} extern`;
+  m.section(active && Boolean(m.v(`${x}.enable`)), () => {
+    for (const [ns3, ns4] of EXTERN_COPY) m.copy(`${x}.${ns3}`, `synth${p}.${ns4}`, w);
+    const select = m.v(`${x}.paramSelect`);
+    const sends = EXTERN_SEND_ON_LOAD.map((k) => `${x}.${k}`);
+    if (select >= 0 && select < sends.length) m.copy(sends[select]!, `synth${p}.externSendOnLoad`, w);
+    m.drop(w, [`${x}.enable`, `${x}.midiCh`],
+      `the values were carried over to synth layer ${p}, but extern must be switched on on the layer, `
+      + 'and the MIDI channel is set on the Stage 4');
+    m.drop(w, EXTERN_LOST.map((k) => `${x}.${k}`), 'the Stage 4 extern has no such setting');
+    m.drop(w, [`${x}.ccNumber`], 'the Stage 4 CC number has another range (0-120, default 3), scale unverified');
+    m.drop(w, sends.filter((_, i) => i !== select),
+      'the Stage 4 has one send-on-load switch, taken from the selected parameter');
+  });
   const mixer = keys.filter((k) => k.startsWith(`mixer${p}.`));
   m.section(active, () => m.drop(`Panel ${p} mixer`, mixer, 'the Stage 4 audio routing works differently'));
 }
 
-/** Morph assignments: both models have them, but the Stage 4 encoding is not mapped yet. */
+/** Morph assignments no rule converted (only the filter cutoff and resonance morphs are mapped). */
 function dropMorphs(m: Mapper, heard: (key: string) => boolean): void {
   const groups = new Map<string, { where: string; on: boolean; keys: string[] }>();
+  const handled = new Set(m.read);
   for (const key of NS3_LAYOUT.fields.keys()) {
-    if (!key.includes('.morph')) continue;
+    if (!key.includes('.morph') || handled.has(key)) continue;
     const at = where(key);
     const on = heard(key);
     const id = `${at}|${on}`;

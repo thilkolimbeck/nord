@@ -121,20 +121,6 @@ export class Mapper {
     this.set(dst, value);
   }
 
-  /**
-   * Copy a parameter whose Stage 4 scale is unverified. A source at its default maps to the
-   * Stage 4 default; any other value is copied and reported.
-   */
-  guess(src: string, dst: string, where: string): void {
-    if (this.isDefault(src)) {
-      this.set(dst, fieldOf(NS4_LAYOUT, dst).default);
-      return;
-    }
-    this.copy(src, dst, where);
-    this.warn(where, `${short(src)} ${this.raw(src)} copied as is; `
-      + 'the Stage 4 scale of this parameter is unverified');
-  }
-
   /** Report fields with no Stage 4 counterpart: one warning naming every non-default one. */
   drop(where: string, keys: Iterable<string>, reason: string): void {
     const changed: string[] = [];

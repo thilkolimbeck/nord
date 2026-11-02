@@ -35,8 +35,9 @@ CASES = {
     'synthA.fltMod': (SYNTH_A, {'synthA.fltMod': -30}, 'filter velocity amount 5.0'),
     'common.dualKbdEnable': ({}, {'common.dualKbdEnable': 1}, 'Common: dualKbdEnable=1'),
     'externA.enable': ({}, {'externA.enable': 1}, 'Panel A extern: enable=1'),
+    'externA.kbZone': ({'externA.enable': 1}, {'externA.kbZone': 3}, 'Panel A extern: kbZone=3'),
     'mixerA.audioRouteProg': ({}, {'mixerA.audioRouteProg': 2}, 'Panel A mixer: audioRouteProg=2'),
-    'synthA.fltFreq.morphWheel': (SYNTH_A, {'synthA.fltFreq.morphWheel': 30}, 'fltFreq.morphWheel=+30'),
+    'synthA.fltLFOAmt.morphWheel': (SYNTH_A, {'synthA.fltLFOAmt.morphWheel': 30}, 'fltLFOAmt.morphWheel=+30'),
 }
 
 

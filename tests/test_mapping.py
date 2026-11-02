@@ -13,18 +13,29 @@ from typing import Dict
 
 from nordconv.cbin import NordFileError
 from nordconv.layout import NS3_LAYOUT
+from nordconv.map_engines import ns4_hash
 from nordconv.mapping import MappingResult, map_program
 from nordconv.program import Ns3Program
 from nordconv.source import effective_values
-from tests.helpers import NS3_SAMPLE, needs_expected, needs_sample, ns3_variant, sample_expected
+from tests.helpers import NS3_SAMPLE, PUBLIC_BASE, needs_expected, needs_sample, ns3_variant, sample_expected
 
 
 def mapped(changes: Dict[str, int] = None, all_default: bool = False, version: int = None) -> MappingResult:
     return map_program(Ns3Program.from_bytes(ns3_variant(changes or {}, all_default, version)))
 
 
+def nsm_mapped(changes: Dict[str, int] = None) -> MappingResult:
+    """An all-default program built on the public base fixture, so the test runs in a public checkout."""
+    return map_program(Ns3Program.from_bytes(ns3_variant(changes or {}, all_default=True, base=PUBLIC_BASE)))
+
+
 def warned(result: MappingResult, *needles: str) -> bool:
     return any(all(n in w for n in needles) for w in result.warnings)
+
+
+def stage3_hash(ns4_hash: int) -> int:
+    """The Stage 3 encoding of a Stage 4 name hash (the inverse of map_engines.ns4_hash)."""
+    return (ns4_hash - 0x80000001) & 0xFFFFFFFF
 
 
 @needs_sample
@@ -63,7 +74,8 @@ class SampleExpected(unittest.TestCase):
                 self.assertFalse(warned(r, *needles), r.warnings)
 
     def test_scene_two_stays_at_the_template(self):
-        for key in ('common.sectionEnableSyn_II', 'synth.layerEnableSyn_II', 'common.layerScene'):
+        for key in ('common.sectionEnableSyn_II', 'synth.layerEnableSyn_II', 'common.sectionEnablePno_II',
+                    'common.layerScene'):
             self.assertNotIn(key, self.e, 'scene II stays at the neutral template')
 
     def test_every_field_has_a_rule(self):
@@ -79,10 +91,10 @@ class Defaults(unittest.TestCase):
         self.assertEqual(result.warnings, ())
         self.assertEqual(result.unhandled, ())
 
-    def test_unverified_scales_map_default_to_default(self):
+    def test_delay_tempo_and_piano_touch_copy_the_default_too(self):
         e = mapped(all_default=True).edits
-        self.assertEqual(e['pianoAFx.dlyRateClkDiv'], 11008)  # Stage 3 default 8192, source Piano
-        self.assertEqual(e['pianoA.kbdTouch'], 1)
+        self.assertEqual(e['pianoAFx.dlyRateClkDiv'], 8192)  # Stage 3 default, source Piano; Stage 4 default 11008
+        self.assertEqual(e['pianoA.kbdTouch'], 0)  # Stage 4 default 1
 
     def test_shared_scales_copy_the_default_too(self):
         e = mapped(all_default=True).edits
@@ -145,7 +157,10 @@ class Rules(unittest.TestCase):
     def test_lossy_parameters_warn_only_when_not_default(self):
         self.assertTrue(warned(mapped({'synthA.arpRange': 2}), 'arpRange=2'))
         self.assertFalse(warned(mapped({'synthA.arpRange': 0}), 'arpRange'))
-        self.assertTrue(warned(mapped({'pianoA.enable': 1, 'pianoA.kbdTouch': 2}), 'kbdTouch 2', 'unverified'))
+        self.assertFalse(warned(mapped({'pianoA.enable': 1, 'pianoA.kbdTouch': 2}), 'kbdTouch'))
+        r = mapped({'pianoA.enable': 1, 'pianoA.kbdTouch': 3})
+        self.assertEqual(r.edits['pianoA.kbdTouch'], 2)
+        self.assertTrue(warned(r, 'kbdTouch 3', 'set to 2'))
 
     def test_lfo_rate_copies(self):
         r = mapped({'synthA.lfoRateClkDiv': 30, 'synthA.fltLFOAmt': 127}, all_default=True)
@@ -185,14 +200,14 @@ class Rules(unittest.TestCase):
         self.assertTrue(any('layer detune 2' in n for n in silent.notes))
 
     def test_reports_follow_section_activity(self):
-        off = mapped({'externA.midiCh': 5, 'effectsA.dlyRateClkDiv': 4000}, all_default=True)
+        off = mapped({'externA.midiCh': 5, 'effectsA.ampType': 4, 'effectsA.ampBass': 20}, all_default=True)
         self.assertEqual(off.warnings, ())
         self.assertTrue(any('midiCh=5' in n for n in off.notes))
-        self.assertTrue(any('dlyRateClkDiv 4000' in n for n in off.notes))
-        on = mapped({'externA.enable': 1, 'externA.midiCh': 5, 'pianoA.enable': 1, 'effectsA.dlyEnable': 1,
-                     'effectsA.dlyRateClkDiv': 4000}, all_default=True)
+        self.assertTrue(any('ampBass=20' in n for n in off.notes))
+        on = mapped({'externA.enable': 1, 'externA.midiCh': 5, 'pianoA.enable': 1, 'effectsA.ampEnable': 1,
+                     'effectsA.ampType': 4, 'effectsA.ampBass': 20}, all_default=True)
         self.assertTrue(warned(on, 'midiCh=5'))
-        self.assertTrue(warned(on, 'dlyRateClkDiv 4000'))
+        self.assertTrue(warned(on, 'ampBass=20'))
         inactive_panel = mapped({'common.slotEnable': 1, 'synthCommonB.enable': 1, 'synthA.arpRange': 0,
                                  'synthB.arpRange': 2}, all_default=True)
         self.assertFalse(warned(inactive_panel, 'arpRange'))
@@ -245,14 +260,200 @@ class Rules(unittest.TestCase):
         self.assertEqual(e['organFx.rvbType'], 6)  # Panel B reverb Stage 1
 
     def test_piano_sound_kept_when_the_stage_4_knows_it(self):
-        e = mapped({'pianoA.nameHash': 1209279823, 'pianoA.entry': 3}).edits
-        self.assertEqual((e['pianoA.nameHash'], e['pianoA.entry']), (1209279823, 3))
+        r = mapped({'pianoA.enable': 1, 'pianoA.nameHash': stage3_hash(1209279823), 'pianoA.entry': 3})
+        self.assertEqual((r.edits['pianoA.nameHash'], r.edits['pianoA.entry']), (1209279823, 3))
+        self.assertTrue(warned(r, 'Panel A piano', 'may substitute a different Stage 4 piano'))
 
     def test_morphs_are_reported(self):
-        self.assertTrue(warned(mapped({'synthA.fltFreq.morphWheel': 40}), 'Panel A synth', 'fltFreq.morphWheel=+40'))
+        r = mapped({'synthA.fltLFOAmt.morphWheel': 40})
+        self.assertTrue(warned(r, 'Panel A synth', 'fltLFOAmt.morphWheel=+40'))
 
     def test_category_independent_header_left_to_converter(self):
         self.assertNotIn('header', ' '.join(mapped().edits))
+
+
+SYNTH_A, SYNTH_B = {'synthCommonA.enable': 1}, {'common.slotEnable': 3, 'synthCommonB.enable': 1}
+
+
+class NordSoundManagerRules(unittest.TestCase):
+    """Rules that three Nord Sound Manager conversions (kept private) confirm, on synthetic inputs."""
+
+    def test_name_hashes_are_offset_encoded(self):
+        self.assertEqual(ns4_hash(0x7FFFFFFF), 0)  # the Stage 3 "none"
+        self.assertEqual(ns4_hash(0xE2691536), 0x62691537)
+        self.assertEqual(stage3_hash(0x62691537), 0xE2691536)
+
+    def test_piano_substitutes(self):
+        r = nsm_mapped({'pianoA.enable': 1, 'pianoA.bank': 1, 'pianoA.entry': 3, 'pianoA.nameHash': 0x354A2C60})
+        self.assertEqual((r.edits['pianoA.nameHash'], r.edits['pianoA.entry'], r.edits['pianoA.bank']),
+                         (0x13198A21, 0, 1))
+        self.assertTrue(warned(r, 'HonkyTonkUpright Lrg became Amber Upright XL, entry 3 became 0'))
+        r = nsm_mapped({'pianoA.enable': 1, 'pianoA.nameHash': 0x5303B5F1})
+        self.assertEqual(r.edits['pianoA.nameHash'], 0xE986F07A)  # same name, the Stage 4 hash
+        self.assertEqual(r.warnings, ())
+        r = nsm_mapped({'pianoA.enable': 1, 'pianoA.nameHash': 0x5303B5F1, 'pianoA.entry': 3})
+        self.assertEqual(r.edits['pianoA.entry'], 0)
+        self.assertEqual(r.warnings, ('Panel A piano: entry 3 became 0, as Nord Sound Manager converts it',))
+
+    def test_unknown_or_empty_piano(self):
+        r = nsm_mapped({'pianoA.enable': 1, 'pianoA.nameHash': 0x12345678})
+        self.assertNotIn('pianoA.nameHash', r.edits)
+        self.assertTrue(warned(r, 'nameHash=0x12345678', 'no piano with its id 0x92345679'))
+        r = nsm_mapped({'pianoA.enable': 1, 'pianoA.nameHash': 0x7FFFFFFF})
+        self.assertNotIn('pianoA.nameHash', r.edits)
+        self.assertEqual(r.warnings, ())
+
+    def test_sample_oscillator_becomes_a_sample_layer(self):
+        r = nsm_mapped({**SYNTH_A, 'synthA.oscBank': 4, 'synthA.smpNameHash': 0xE2691536, 'synthA.smpFastAtk': 1})
+        self.assertEqual((r.edits['synthA.mode'], r.edits['synthA.smpNameHash'], r.edits['synthA.smpId']),
+                         (0, 0x62691537, 0))
+        self.assertTrue(warned(r, 'sample 0x62691537', 'must be on the Stage 4'))
+        self.assertTrue(warned(r, 'smpFastAtk=1', 'no fast attack'))
+        self.assertFalse(warned(r, 'smpNameHash'))
+        self.assertFalse(warned(r, 'analog counterpart'))
+
+    def test_sample_layer_warnings_name_the_sample_and_skip_analog_text(self):
+        r = nsm_mapped({**SYNTH_A, 'synthA.oscBank': 4, 'synthA.smpNameHash': stage3_hash(3062954),
+                        'synthA.oscConf': 4, 'synthA.dualOscDetune': 0, 'synthA.oscCtrl': 5})
+        self.assertEqual(r.edits['synthA.smpNameHash'], 3062954)
+        self.assertTrue(warned(r, 'sample 0x002EBCAA (Harjedalspipa_ST 4.1): the sample must be on the Stage 4'))
+        self.assertTrue(warned(r, 'osc 2 pitch -12', 'a Stage 4 sample layer has no second-oscillator pitch'))
+        self.assertTrue(warned(r, 'osc ctrl 5 copied as is; unverified whether a Stage 4 sample layer uses it'))
+        self.assertFalse(warned(r, 'analog'))
+
+    def test_sample_bank_without_a_sample_stays_analog(self):
+        r = nsm_mapped({**SYNTH_A, 'synthA.oscBank': 4, 'synthA.smpNameHash': 0x7FFFFFFF})
+        self.assertNotIn('synthA.mode', r.edits)
+        self.assertTrue(warned(r, 'Sample oscillator wave 0', 'analog counterpart'))
+        r = nsm_mapped({**SYNTH_A, 'synthA.smpNameHash': 0xE2691536})  # Classic bank
+        self.assertNotIn('synthA.smpNameHash', r.edits)
+        self.assertTrue(warned(r, 'smpNameHash=0xE2691536', 'only a Sample oscillator'))
+
+    def test_cutoff_opens_two_octaves_with_key_tracking(self):
+        for track, cutoff, want in ((3, 54, 78), (1, 1, 25), (2, 120, 127), (0, 54, 54)):
+            with self.subTest(track=track, cutoff=cutoff):
+                e = nsm_mapped({'synthA.fltKbdTrk': track, 'synthA.fltFreq': cutoff}).edits
+                self.assertEqual(e['synthASound.fltFreq'], want)
+
+    def test_resonance_is_three_quarters(self):
+        for res, want in ((87, 65), (82, 61), (41, 30), (127, 95), (0, 0)):
+            with self.subTest(res=res):
+                self.assertEqual(nsm_mapped({'synthA.fltRes': res}).edits['synthASound.fltRes'], want)
+
+    def test_filter_morphs_convert(self):
+        r = nsm_mapped({**SYNTH_B, 'synthB.fltFreq.morphCtrlPedal': 46, 'synthB.fltRes.morphCtrlPedal': -45,
+                    'synthB.fltFreq.morphWheel': -20, 'synthB.fltRes.morphAfterTouch': 45,
+                    'synthB.fltKbdTrk': 1})
+        e = r.edits
+        self.assertEqual((e['synthBSound.fltFreq.morphCtrlPedal'], e['synthBSound.fltRes.morphCtrlPedal']), (46, -33))
+        self.assertEqual((e['synthBSound.fltFreq.morphWheel'], e['synthBSound.fltRes.morphAfterTouch']), (-20, 33))
+        self.assertEqual(r.warnings, ())
+
+    def test_reverb_amount_is_seven_eighths(self):
+        for amount, want in ((22, 19), (27, 23), (46, 40), (64, 56), (127, 111)):
+            with self.subTest(amount=amount):
+                e = nsm_mapped({'effectsB.rvbAmt': amount}).edits
+                self.assertEqual((e['synthBFx.rvbAmt'], e['pianoBFx.rvbAmt']), (want, want))
+
+    def test_super_oscillator_ctrl_is_fixed(self):
+        r = nsm_mapped({**SYNTH_B, 'synthB.oscBank': 3, 'synthB.oscCtrl': 16})
+        self.assertEqual((r.edits['synthBSound.oscCat'], r.edits['synthBSound.oscCtrl']), (6, 36))
+        self.assertTrue(warned(r, 'osc ctrl 16 became 36'))
+        r = nsm_mapped({**SYNTH_B, 'synthB.oscBank': 3})
+        self.assertEqual(r.edits['synthBSound.oscCtrl'], 36)
+        self.assertEqual(r.warnings, ())
+        self.assertEqual(nsm_mapped({'synthB.oscCtrl': 16}).edits['synthBSound.oscCtrl'], 16)
+
+    def test_filter_env_amount_rounds_down(self):
+        for mod, want in ((14, 29), (23, 48), (47, 99), (60, 127)):
+            with self.subTest(mod=mod):
+                e = nsm_mapped({'synthA.fltMod': mod}).edits
+                self.assertEqual(e['synthASound.fltEnvAmt'], want)
+
+    def test_filter_mod_zero_writes_an_idle_filter_env(self):
+        changes = {'synthA.modEnvAtc': 10, 'synthA.modEnvDcy': 30, 'synthA.modEnvRls': 40}
+        e = nsm_mapped(changes).edits
+        self.assertEqual([e[f'synthASound.fltEnv{k}'] for k in ('Atk', 'Dcy', 'Rls', 'Vel')], [10, 127, 127, 1])
+        self.assertNotIn('synthASound.fltEnvAmt', e)
+        e = nsm_mapped({**changes, 'synthA.fltMod': 30}).edits
+        self.assertEqual([e[f'synthASound.fltEnv{k}'] for k in ('Atk', 'Dcy', 'Rls', 'Vel')], [10, 30, 40, 0])
+
+    def test_saw_with_detune_becomes_pure_saw(self):
+        r = nsm_mapped({**SYNTH_A, 'synthA.oscWave': 2, 'synthA.oscConf': 4, 'synthA.dualOscDetune': 0,
+                    'synthA.oscCtrl': 10})
+        e = r.edits
+        self.assertEqual((e['synthASound.oscCat'], e['synthASound.oscWave'], e['synthASound.oscCtrl']), (0, 2, 10))
+        self.assertTrue(warned(r, '4 Detune became Pure Saw'))
+        self.assertTrue(warned(r, 'osc 2 pitch -12'))
+
+    def test_other_hand_table_entries_are_unchanged(self):
+        for (wave, conf, detune), want in (((2, 8, 0), (1, 0)), ((2, 3, 12), (2, 2)), ((1, 2, 12), (3, 0)),
+                                           ((2, 0, 12), (0, 2))):
+            with self.subTest(wave=wave, conf=conf):
+                e = nsm_mapped({'synthA.oscWave': wave, 'synthA.oscConf': conf, 'synthA.dualOscDetune': detune}).edits
+                self.assertEqual((e['synthASound.oscCat'], e['synthASound.oscWave']), want)
+
+    def test_effects_are_per_layer_even_when_nothing_plays(self):
+        e = nsm_mapped({'common.slotEnable': 1, 'synthCommonA.enable': 0}).edits
+        self.assertEqual((e['piano.effectsSectionModePno'], e['synth.effectsSectionModeSyn']), (0, 0))
+
+    def test_keyboard_hold_layer_switches_always_copy(self):
+        e = nsm_mapped().edits
+        self.assertEqual((e['synthA.kbdHoldEnableLayer'], e['synthB.kbdHoldEnableLayer']), (0, 0))
+        self.assertNotIn('synth.kbdHoldEnableCommon', e)
+        self.assertNotIn('synthC.kbdHoldEnableLayer', e)
+        e = nsm_mapped({'synthA.kbdHold': 1}).edits
+        self.assertEqual((e['synthA.kbdHoldEnableLayer'], e['synthB.kbdHoldEnableLayer'],
+                          e['synth.kbdHoldEnableCommon']), (1, 0, 1))
+
+    def test_zones_prefer_the_value_that_keeps_them_with_every_split_point(self):
+        mid = {'common.splitEnable': 1, 'common.splitLowEnable': 0, 'common.splitMidEnable': 1}
+        mid_high = {**mid, 'common.splitHighEnable': 1}
+        # Stage 3 zones: 2 = oo1o, 3 = ooo1, 4 = 11oo, 6 = oo11.
+        for splits, zone, want in ((mid, 4, 2), (mid, 6, 8), (mid_high, 2, 9), (mid_high, 3, 10), (mid_high, 4, 0)):
+            with self.subTest(splits=sorted(splits), zone=zone):
+                e = nsm_mapped({**splits, 'synthCommonA.kbZone': zone, 'pianoA.kbZone': zone}).edits
+                self.assertEqual((e['synthA.kbZone'], e['pianoA.kbZone']), (want, want))
+
+    def test_scene_two_piano_warns_when_the_stage_3_piano_is_off(self):
+        r = nsm_mapped({'common.slotEnable': 1, 'pianoA.enable': 0, 'pianoA.nameHash': 0x354A2C60})
+        self.assertNotIn('common.sectionEnablePno_II', r.edits)
+        self.assertTrue(warned(r, 'Scene II: piano layer A (Amber Upright XL) plays',
+                               'piano of Stage 3 Panel A, which is off'))
+        self.assertTrue(any('HonkyTonkUpright Lrg became Amber Upright XL' in n for n in r.notes))
+        r = nsm_mapped({'common.slotEnable': 1, 'pianoA.enable': 1, 'pianoA.nameHash': 0x354A2C60})
+        self.assertFalse(warned(r, 'Scene II'))
+
+    def test_scene_two_piano_only_with_a_converted_piano(self):
+        self.assertEqual(nsm_mapped().edits['common.sectionEnablePno_II'], 0)
+        e = nsm_mapped({'pianoA.nameHash': 0x5303B5F1}).edits
+        self.assertNotIn('common.sectionEnablePno_II', e)  # the Stage 4 default (on) stays
+        for key in ('organ.layerEnableOrg_II', 'synth.layerEnableSyn_II', 'piano.layerEnablePno_II'):
+            self.assertNotIn(key, e)
+
+    def test_extern_values_go_to_the_synth_layer(self):
+        r = nsm_mapped({'common.slotEnable': 3, 'externB.enable': 1, 'externB.midiCh': 10, 'externB.bcValue_LSB': 1,
+                    'externB.bcValue_MSB': 1, 'externB.pcValue': 83, 'externB.sendOnLoadPC': 1,
+                    'externB.ctrlPedalEnable': 0})
+        e = r.edits
+        self.assertEqual((e['synthB.externBCValue_LSB'], e['synthB.externBCValue_MSB'], e['synthB.externPCValue'],
+                          e['synthB.externCtrlPedalEnable'], e['synthB.externSendOnLoad']), (1, 1, 83, 0, 0))
+        self.assertNotIn('synthB.externEnable', e)
+        self.assertTrue(warned(r, 'Panel B extern: enable=1, midiCh=10', 'switched on on the layer'))
+        self.assertTrue(warned(r, 'sendOnLoadPC=1', 'one send-on-load switch'))
+        r = nsm_mapped({'externA.enable': 1, 'externA.paramSelect': 1, 'externA.sendOnLoadPC': 1})
+        self.assertEqual(r.edits['synthA.externSendOnLoad'], 1)
+        self.assertFalse(warned(r, 'sendOnLoadPC'))
+        r = nsm_mapped({'externA.enable': 1, 'externA.paramSelect': 0, 'externA.ccNumber': 20,
+                        'externA.ccValue': 9, 'externA.sendOnLoadCC': 1})
+        self.assertEqual((r.edits['synthA.externCCValue1'], r.edits['synthA.externSendOnLoad']), (9, 1))
+        self.assertNotIn('synthA.externCCNumber1', r.edits)
+        self.assertTrue(warned(r, 'ccNumber=20 not converted', 'scale unverified'))
+        self.assertFalse(warned(r, 'ccValue'))
+
+    def test_rotor_angles_copy(self):
+        e = nsm_mapped({'common.leslieRotorAngle': 48, 'common.leslieHornAngle': 85}).edits
+        self.assertEqual((e['organ.leslieRotorAngle'], e['organ.leslieHornAngle']), (48, 85))
 
 
 MORPHS = ('morphWheel', 'morphAfterTouch', 'morphCtrlPedal')

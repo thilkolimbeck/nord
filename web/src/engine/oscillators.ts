@@ -2,10 +2,10 @@
  * Stage 3 oscillator (bank, wave, configuration) -> Stage 4 analog oscillator (port of
  * nordconv/oscillators.py).
  *
- * The hand-made table covers the waves' names plus two configurations a sample program pair
- * (kept private) confirms (Saw + "8 MixSqr" with osc 2 one octave down -> Sub Square Saw;
- * Saw + "4 Detune" -> Multi Saw). Anything else falls back to the PURE version of the base
- * wave and is reported.
+ * The hand-made table covers the waves' names plus two configurations: Saw + "8 MixSqr" with
+ * osc 2 one octave down -> Sub Square Saw (a sample program pair, kept private) and Saw +
+ * "4 Detune" -> Pure Saw (as three Nord Sound Manager conversions, kept private, do it).
+ * Anything else falls back to the PURE version of the base wave and is reported.
  */
 import { OSC_CLASSIC_WAVE, OSC_CONFIG, OSC_SUPER_WAVE, SYNTH_OSC } from './generated/tables-ns3.ts';
 
@@ -67,7 +67,10 @@ export function mapOscillator(bank: number, wave: number, conf: number, detune: 
 function classic(name: string, index: number, conf: string, detune: number): OscChoice {
   const base = E_WAVE_BASE.get(name) ?? name;
   if (conf === '8 MixSqr' && name === 'Saw' && detune === DETUNE_SUB) return choice(SUB_OSC, 0, null, true);
-  if (conf === '4 Detune' && name === 'Saw') return choice(MULTI, 0);
+  if (conf === '4 Detune' && name === 'Saw') {
+    return choice(PURE, index, 'configuration 4 Detune became Pure Saw, as Nord Sound Manager converts it; '
+      + 'the detuned second oscillator is lost');
+  }
   if (conf === '3 Sync' && index < NAMED_WAVES) return choice(SYNC, index);
   const shape = SHAPE_WAVE.get(name);
   if (conf === '2 Shape' && shape !== undefined) return choice(SHAPE, shape);

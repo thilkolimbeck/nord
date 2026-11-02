@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import unittest
 
+from nordconv.bits import read_bits
 from nordconv.convert import _uncovered_mask
 from nordconv.layout import NS4_LAYOUT
 from nordconv.program import Ns4Program
-from nordconv.template import CATEGORY_NONE, SWITCHES_OFF, load_template
+from nordconv.template import CATEGORY_NONE, SWITCHES_OFF, UNDECODED_VALUES, load_template
 from tests.helpers import TEMPLATE, sha256
 
 
@@ -28,15 +29,26 @@ class Neutralise(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertEqual(self.neutral.value(key), want)
 
-    def test_all_sections_and_layers_off(self):
-        self.assertIn('common.sectionEnablePno_II', SWITCHES_OFF)
+    def test_scene_one_off_scene_two_at_the_stage_4_defaults(self):
         self.assertIn('synth.layerEnableSyn_I', SWITCHES_OFF)
-        self.assertEqual(len(SWITCHES_OFF), 12)
+        self.assertEqual(len(SWITCHES_OFF), 6)
+        for key in ('common.sectionEnablePno_II', 'piano.layerEnablePno_II', 'organ.layerEnableOrg_II',
+                    'synth.layerEnableSyn_II'):
+            self.assertNotIn(key, SWITCHES_OFF)
+            self.assertEqual(self.neutral.value(key), 1, key)
 
-    def test_undecoded_bits_are_the_donors(self):
+    def test_undecoded_bits_are_the_donors_except_nord_sound_managers_values(self):
+        patched = bytearray(len(self.donor.body))
+        blocks = {b.key: b for b in NS4_LAYOUT.blocks}
+        for block, bit, width, value in UNDECODED_VALUES:
+            start = (blocks[block].offset + 1) * 8 + bit
+            self.assertEqual(read_bits(self.neutral.body, start, width), value, block)
+            for n in range(start, start + width):
+                patched[n >> 3] |= 0x80 >> (n & 7)
         mask = _uncovered_mask()
-        for a, b, m in zip(self.neutral.body, self.donor.body, mask):
-            self.assertEqual(a & m, b & m)
+        self.assertEqual([m & p for m, p in zip(mask, patched)], list(patched), 'only undecoded bits are patched')
+        for a, b, m, p in zip(self.neutral.body, self.donor.body, mask, patched):
+            self.assertEqual(a & m & ~p, b & m & ~p)
         self.assertTrue(any(b & m for b, m in zip(self.donor.body, mask)), 'donor has undecoded bits set')
 
     def test_header_is_reset(self):

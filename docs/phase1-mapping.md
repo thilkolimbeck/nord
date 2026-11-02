@@ -1,7 +1,7 @@
 # Nord Stage 3 → Stage 4 converter: Phase 1 mapping
 
 Sample: a sample program pair (kept private), one `.ns3f` (592 B) and one `.ns4p` (868 B). Both files were only read, never changed.
-Legend: **[V]** checked by decoding the sample bytes, **[R]** read in reference code only, **[I]** inference.
+Legend: **[V]** checked by decoding the sample bytes, **[R]** read in reference code only, **[I]** inference, **[N]** confirmed by three Nord Sound Manager conversions (kept private), each rule seen at least twice or exact by arithmetic unless the row says "seen once" *(added 2 Nov 2026)*.
 
 The detailed evidence (file:line citations, full field dumps of the pair) is kept private with the sample pair.
 
@@ -38,37 +38,43 @@ Display tables (ms, Hz, dB) are **identical** between models at every point chec
 | Header category | category | transformed | real id copies; `0xFFFFFFFF` (unset) → 17 "None" **(confirm)** |
 | Header bank/location | bank/location | transformed | grids differ (16×25 vs 8×64) **(policy?)** |
 | Split on/off, points, widths | common.split* | mapped | position NS4 = NS3 + 1 (one point checked) |
-| Panel enable A/B/A&B | scene I layer enables | transformed | Panel A → layer A, Panel B → layer B; scene II stays at template |
-| Engine kbZone | layer kbZone | transformed | same zone meaning via NS4 split-dependency table |
-| Synth level, unison, filter freq/drive/kbd-track/type, amp env A/D/R, reverb amount, fx rate/amount | same | mapped | copy (shared tables; filter type order identical) |
+| Panel enable A/B/A&B | scene I layer enables | transformed | Panel A → layer A, Panel B → layer B; scene II keeps the Stage 4 defaults [N], but its piano stays off without a converted piano A (the converter's own choice); scene II playing an off Stage 3 piano A → warn |
+| Engine kbZone | layer kbZone | transformed | same zone meaning via NS4 split-dependency table; prefer the value with the same label with all split points on [N] |
+| Synth level, unison, filter drive/kbd-track/type, amp env A/D/R, fx rate/amount | same | mapped | copy (shared tables; filter type order identical) |
+| Filter freq | fltFreq | transformed [N] | +24 (two octaves) when kbd-track > 0, max 127; else copy |
+| Filter res | fltRes | transformed [N] | `trunc(v·3/4)` |
+| Reverb amount | rvbAmt | transformed [N] | `floor(v·7/8)` in every block that gets it |
 | Voice mode | voiceMode | transformed | enum remap (Mono checked) |
-| Filter mod (±60) | filter env amount / – | transformed / unmappable | `+v → round(v·127/60)`; negative is the **velocity** amount (ns3-program-viewer ns3-synth-filter.js), not the LFO: no NS4 counterpart, warn *(corrected after review, 31 Oct 2026)* |
+| Filter mod (±60) | filter env amount / – | transformed / unmappable | `+v → floor(v·127/60)` [N]; 0 → filter env Dcy 127, Rls 127, Vel on [N]; negative is the **velocity** amount (ns3-program-viewer ns3-synth-filter.js), not the LFO: no NS4 counterpart, warn *(corrected after review, 31 Oct 2026)* |
 | Osc mod (±60) | osc env amount / LFO→osc | transformed | same scale rule |
 | Mod env A/D/R/vel | filter env (and osc env if osc mod ≠ 0) | transformed | **opennord uses osc env only; the sample pair uses the filter env (confirm)** |
-| Classic wave + config + detune | osc bank/category/wave | **lossy** | hand table; 2 known points (MixSqr+Sub saw → Sub Square Saw; Detune saw → Multi Saw); unknown configs → warn |
-| Osc ctrl | oscCtrl | **lossy** | meaning depends on config; copy + warn or leave |
-| Wave/Formant/Super/Sample osc | oscBank / sample | lossy / unmappable | banks differ; samples need a catalog |
+| Classic wave + config + detune | osc bank/category/wave | **lossy** | hand table; 2 known points (MixSqr+Sub saw → Sub Square Saw; Detune saw → Pure Saw [N]); unknown configs → warn |
+| Osc ctrl | oscCtrl | **lossy** | meaning depends on config; copy + warn (sample layer: use unverified); Super osc → 36 [N] |
+| Wave/Formant/Super osc | oscBank | lossy | banks differ |
+| Sample osc + sample hash | synth mode / smpNameHash / smpId | transformed [N, seen once] | mode 0 (samples), decoded hash, smpId 0; warn (the sample must be on the Stage 4); smpFastAtk has no NS4 field |
 | LFO wave/rate/clock | lfo* | mapped | rate tables equal to within one rounding step (opennord deps 576-6); copy, defaults included *(corrected after review, 31 Oct 2026)* |
 | Arpeggiator | arp* | transformed [I] | unverified |
 | Synth preset name/hash | synPreset* | **unmappable** | NS3 preset hash validity on NS4 unknown → 0 + warn |
 | Piano type | piano type | mapped [R] | same enum |
-| Piano / sample sound (name hash) | nameHash / smpId | **lossy** | keep hash if Stage 4 has the item, else warn; no NS3→NS4 catalog yet |
-| Organ model, drawbars, perc, vibrato | organ fields | mapped / transformed [R] | inactive drawbar preset (I/II) → organ layer B? |
+| Piano / sample sound (name hash) | nameHash / smpId | **lossy** | NS3 hashes are offset-encoded: `h4 = (h3 + 0x80000001) mod 2^32`, none 0x7FFFFFFF → 0 [N]; piano: NSM's observed substitutes (Royal Grand 3D XL legacy → native, HonkyTonkUpright Lrg → Amber Upright XL seen once; entry 0, warn if it was not 0), else keep the decoded hash if the Stage 4 list has it (warn: NSM may substitute), else warn |
+| Piano touch | kbdTouch | mapped | copy (0 → 0 [N]; 1-3 unobserved [I]); 3 → 2 (warn) |
+| Organ model, drawbars, perc, vibrato | organ fields | mapped / transformed [R] | inactive drawbar preset (I/II) → organ layer B?; open: NSM keeps Vox/Farfisa vibrato at the Stage 4 defaults (2/1) and copies only B3 (all three, selector 0), not followed |
 | Rotary (speed/drive) | rotary | transformed [I] | opennord skips it |
-| Rotor/horn angles | – | skip | runtime snapshot, not a setting |
-| FX per panel + source | per-section, per-layer FX block | transformed | route by source and panel → layer |
+| Rotor/horn angles | organ.leslie*Angle | mapped [N, one program] | copy (a snapshot at save time) |
+| FX per panel + source | per-section, per-layer FX block | transformed | route by source and panel → layer; piano and synth effects mode always per layer [N] |
 | FX1 / FX2 type | fx1/fx2Type | transformed | label table (Vibe → VIBE, Chorus → CHOR, …); variants 1/2 unverified |
 | Amp type Clean/Twin/JC/Small/LP24/HP24 | ampTypeNew | transformed | 1→1, 2→3, 3→5, 4→8, 5→9; **Clean has no NS4 type** |
 | Amp EQ treble/mid/bass/midFreq | same | transformed | re-encode offset → two's complement |
 | Amp dry/wet (bass knob in filter mode) | ? | **unmappable** | no confirmed NS4 field |
 | Compressor | cmp* | mapped [R] | |
-| Delay | dly* | transformed | tempo encoding differs (defaults 8192 vs 11008), unverified |
+| Delay | dly* | transformed | tempo copies raw: one scale despite the defaults 8192 vs 11008 [N] |
 | Reverb type (Room/Stage/Hall 1/2) | rvbType | transformed | **X1 → base or variation? sample is inconsistent** |
 | Reverb bright | rvbColor | transformed [I] | |
-| Morphs (wheel/AT/pedal) | morph fields | transformed [I] | encodings differ; opennord skips; unverified |
-| Extern | per-layer extern | transformed [I] | unverified |
+| Morphs (wheel/AT/pedal) | morph fields | transformed [I] | filter freq deltas copy, filter res deltas `trunc(v·3/4)` (pedal [N], negative delta toward zero seen once; wheel/AT same fields [I]); others not mapped, warn |
+| Extern | synth layer extern* | transformed [N] / [I] | bank, program, ctrl pedal switch and send on load = sendOnLoad{CC,PC,Vol}[paramSelect] [N]; velocity curve, wheel/AT/swell/volume switches, ccValue → externCCValue1 copy [I] (same names and ranges); externEnable stays 0; midiCh, zone, octave, pitch stick, sustain, volValue, ccNumber (scale unverified) dropped, warn |
+| Synth kbd hold | kbdHoldEnableLayer A/B / kbdHoldEnableCommon | mapped [N] | layer switch copies always; common on when a panel holds |
 | Dual keyboard, audio routing | – / routing bus | unmappable / lossy [I] | |
-| NS4-only (scene II, layer C, vibrato delay, aux kbd, unknown bytes) | – | template | taken from the donor `.ns4p`, never zeroed |
+| NS4-only (scene II, layer C, vibrato delay, aux kbd, unknown bytes) | – | template | layout defaults; unknown bytes from the donor `.ns4p`, except three fields NSM always writes (synth layer 2 bits = 1, organ 3 bits = 5, synth sound 2 bits = 0) [N] |
 
 ## 4. Proposed implementation, pending your answers
 

@@ -5,7 +5,8 @@
  * and reverb act on the whole panel. The Stage 4 has an effects block per layer plus a single
  * block for the organ section, so each source-bound effect goes to the block of its source's
  * layer, and compressor and reverb go to every block of the panel. "1" type variants become the
- * Stage 4 base type and "2" variants its variation.
+ * Stage 4 base type and "2" variants its variation. Three Nord Sound Manager conversions (kept
+ * private) confirm the delay tempo copy and the reverb amount scale.
  */
 import type { Mapper } from './mapper.ts';
 
@@ -24,6 +25,8 @@ const AMP_FILTERS: ReadonlySet<number> = new Set([4, 5]);
 // Room 1, Room 2, Stage 1, Stage 2, Hall 1, Hall 2 -> ROOM, ROOM var., STAGE, STAGE var., HALL, HALL var.
 const REVERB_TYPE: Table = new Map([[0, 4], [1, 5], [2, 6], [3, 7], [4, 8], [5, 9]]);
 const REVERB_BRIGHT = 2;
+// Nord Sound Manager writes floor(amount * 7 / 8) for the reverb amount (22 -> 19, 27 -> 23, 46 -> 40, 64 -> 56).
+const REVERB_SCALE: readonly [number, number] = [7, 8];
 // common.leslieSpeed packs the speed (bit 1: fast) and the inverted stop mode (bit 0: 1 = stop mode off).
 const ROTARY_FAST_BIT = 2;
 const ROTARY_STOP_OFF_BIT = 1;
@@ -100,11 +103,13 @@ export function mapEffects(m: Mapper, p: Panel, owner: Panel, bothOrgansPlay: bo
   const reverbColor = m.v(`${e}.rvbBright`) ? REVERB_BRIGHT : 0;
   const panelBlocks = Array.from(blocks.values()).filter((b): b is string => Boolean(b));
   for (const block of panelBlocks) {
-    for (const keys of [['cmpEnable', 'cmpAmt', 'cmpResponse'], ['rvbEnable', 'rvbAmt']]) {
-      m.section(on(keys[0]!), () => {
-        for (const key of keys) m.copy(`${e}.${key}`, `${block}.${key}`, w);
-      });
-    }
+    m.section(on('cmpEnable'), () => {
+      for (const key of ['cmpEnable', 'cmpAmt', 'cmpResponse']) m.copy(`${e}.${key}`, `${block}.${key}`, w);
+    });
+    m.section(on('rvbEnable'), () => {
+      m.copy(`${e}.rvbEnable`, `${block}.rvbEnable`, w);
+      m.set(`${block}.rvbAmt`, Math.floor((m.v(`${e}.rvbAmt`) * REVERB_SCALE[0]) / REVERB_SCALE[1]));
+    });
     m.set(`${block}.rvbType`, reverbType);
     m.set(`${block}.rvbColor`, reverbColor);
   }
@@ -136,8 +141,9 @@ function delay(m: Mapper, e: string, block: string, w: string): void {
     ['dlyMode', 'dlyMode']] as const) {
     m.copy(`${e}.${ns3}`, `${block}.${ns4}`, w);
   }
-  // The tempo field has different defaults on the two models (8192 vs 11008): the scale differs.
-  m.guess(`${e}.dlyRateClkDiv`, `${block}.dlyRateClkDiv`, w);
+  // One tempo scale on both models, despite different defaults (8192 vs 11008): Nord Sound Manager
+  // copies the raw value (12971 stays 12971).
+  m.copy(`${e}.dlyRateClkDiv`, `${block}.dlyRateClkDiv`, w);
 }
 
 function amp(m: Mapper, e: string, block: string, w: string): void {

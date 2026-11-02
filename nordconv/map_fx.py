@@ -12,7 +12,9 @@ Type tables pair labels: "1" variants become the Stage 4 base type and "2"
 variants its variation (approved default, applied to every effect type).
 
 Every unit converts, but reports about a unit that is off, or whose source
-engine does not play, are notes rather than warnings (Mapper.section).
+engine does not play, are notes rather than warnings (Mapper.section). Three
+Nord Sound Manager conversions (kept private) confirm the delay tempo copy and
+the reverb amount scale.
 """
 from __future__ import annotations
 
@@ -32,6 +34,8 @@ AMP_FILTERS = {4, 5}
 # Room 1, Room 2, Stage 1, Stage 2, Hall 1, Hall 2 -> ROOM, ROOM var., STAGE, STAGE var., HALL, HALL var.
 REVERB_TYPE = {0: 4, 1: 5, 2: 6, 3: 7, 4: 8, 5: 9}
 REVERB_BRIGHT = 2
+# Nord Sound Manager writes floor(amount * 7 / 8) for the reverb amount (22 -> 19, 27 -> 23, 46 -> 40, 64 -> 56).
+REVERB_SCALE = (7, 8)
 # common.leslieSpeed packs the speed (bit 1: fast) and the inverted stop mode (bit 0: 1 = stop mode off):
 # 0 = slow + stop mode ("Stop"), 1 = slow, 2 = fast + stop mode, 3 = fast (ns3-program-viewer
 # ns3-fx-rotary-speaker.js; viewer fixtures stopMode.enabled true = 2, false = 3).
@@ -104,10 +108,12 @@ def map_effects(m: Mapper, p: str, owner: str, both_organs_play: bool, plays: Di
     reverb_color = REVERB_BRIGHT if m.v(f'{e}.rvbBright') else 0
     panel_blocks: List[str] = [b for b in blocks.values() if b]
     for block in panel_blocks:
-        for keys in (('cmpEnable', 'cmpAmt', 'cmpResponse'), ('rvbEnable', 'rvbAmt')):
-            with m.section(on(keys[0])):
-                for key in keys:
-                    m.copy(f'{e}.{key}', f'{block}.{key}', w)
+        with m.section(on('cmpEnable')):
+            for key in ('cmpEnable', 'cmpAmt', 'cmpResponse'):
+                m.copy(f'{e}.{key}', f'{block}.{key}', w)
+        with m.section(on('rvbEnable')):
+            m.copy(f'{e}.rvbEnable', f'{block}.rvbEnable', w)
+            m.set(f'{block}.rvbAmt', m.v(f'{e}.rvbAmt') * REVERB_SCALE[0] // REVERB_SCALE[1])
         m.set(f'{block}.rvbType', reverb_type)
         m.set(f'{block}.rvbColor', reverb_color)
     if owner != p and both_organs_play:
@@ -136,8 +142,9 @@ def _delay(m: Mapper, e: str, block: str, w: str) -> None:
                      ('dlyPingPong', 'dlyFbkPingPong'), ('dlyFltType', 'dlyFbkFilt'),
                      ('dlyFeedback', 'dlyFbkAmt'), ('dlyMode', 'dlyMode')):
         m.copy(f'{e}.{ns3}', f'{block}.{ns4}', w)
-    # The tempo field has different defaults on the two models (8192 vs 11008): the scale differs.
-    m.guess(f'{e}.dlyRateClkDiv', f'{block}.dlyRateClkDiv', w)
+    # One tempo scale on both models, despite different defaults (8192 vs 11008): Nord Sound Manager
+    # copies the raw value (12971 stays 12971).
+    m.copy(f'{e}.dlyRateClkDiv', f'{block}.dlyRateClkDiv', w)
 
 
 def _amp(m: Mapper, e: str, block: str, w: str) -> None:

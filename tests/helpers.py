@@ -8,7 +8,8 @@ sample's sound live next to it, in presets/expected-mapping.json (@needs_expecte
 
 The samples are never written. Variants are made in memory by re-encoding fields
 of the sample body and re-sealing the container, which also gives the tests an
-all-default Stage 3 program to check "silent at default".
+all-default Stage 3 program to check "silent at default". All-default inputs can
+also start from PUBLIC_BASE, a tracked viewer fixture, and then run in a public checkout.
 """
 from __future__ import annotations
 
@@ -34,6 +35,8 @@ def _first(folder: Path, pattern: str) -> Optional[Path]:
 
 
 NS3_SAMPLE = _first(PRIVATE / 'stage3', '*.ns3f')
+#: A public viewer fixture (format 3.04, like the sample) for all-default inputs that need no private file.
+PUBLIC_BASE = ROOT / 'web' / 'test' / 'fixtures' / 'ns3' / 'global' / 'panelB.output.main.value eq 1-2.ns3f'
 NS4_SAMPLE = _first(PRIVATE / 'stage4', '*.ns4p')
 SAMPLE_EXPECTED = PRIVATE / 'expected-mapping.json'
 SAMPLE_SKIP = ('needs the private sample program pair in presets/stage3 and presets/stage4 '
@@ -53,9 +56,10 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def ns3_variant(changes: Mapping[str, int], all_default: bool = False, version: Optional[int] = None) -> bytes:
-    """The Stage 3 sample (or an all-default program) with `changes` applied, as file bytes."""
-    parsed = parse_cbin(NS3_SAMPLE.read_bytes(), 'ns3f')
+def ns3_variant(changes: Mapping[str, int], all_default: bool = False, version: Optional[int] = None,
+                base: Optional[Path] = None) -> bytes:
+    """The Stage 3 sample, or `base`, (or an all-default program) with `changes` applied, as file bytes."""
+    parsed = parse_cbin((base or NS3_SAMPLE).read_bytes(), 'ns3f')
     body = bytearray(parsed.body)
     fields = NS3_LAYOUT.fields
     values = {k: f.default for k, f in fields.items()} if all_default else {}

@@ -4,11 +4,11 @@ The two synth engines are built differently: the Stage 3 combines a base
 wave with a configuration (a second oscillator, sync, shape, FM ...), the
 Stage 4 offers fixed analog categories and waves. There is no published
 correspondence, so this table is hand-made from the waves' names, plus two
-configurations (Saw + "8 MixSqr" with the second oscillator one octave down ->
-SUB OSC / Sub Square Saw; Saw + "4 Detune" -> MULTI / Multi Saw) that a sample
-program pair (kept private) confirms. Anything else falls back to the PURE
-version of the base wave and is reported, because a close-enough wave beats a
-silent default.
+configurations: Saw + "8 MixSqr" with the second oscillator one octave down ->
+SUB OSC / Sub Square Saw (a sample program pair, kept private) and Saw +
+"4 Detune" -> PURE / Pure Saw (as three Nord Sound Manager conversions, kept
+private, do it). Anything else falls back to the PURE version of the base wave
+and is reported, because a close-enough wave beats a silent default.
 """
 from __future__ import annotations
 
@@ -65,7 +65,8 @@ def _classic(name: str, index: int, conf: str, detune: int) -> OscChoice:
     if conf == '8 MixSqr' and name == 'Saw' and detune == DETUNE_SUB:
         return OscChoice(SUB_OSC, 0, uses_detune=True)
     if conf == '4 Detune' and name == 'Saw':
-        return OscChoice(MULTI, 0)
+        return OscChoice(PURE, index, 'configuration 4 Detune became Pure Saw, as Nord Sound Manager converts it; '
+                                      'the detuned second oscillator is lost')
     if conf == '3 Sync' and index < _NAMED_WAVES:
         return OscChoice(SYNC, index)
     if conf == '2 Shape' and name in _SHAPE_WAVE:

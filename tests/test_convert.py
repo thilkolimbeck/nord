@@ -40,7 +40,7 @@ class Sample(unittest.TestCase):
             self.assertEqual(self.out.value(key), value, key)
 
     def test_layers_not_mapped_stay_neutral(self):
-        for key in ('synthCSound.fltType', 'synthCFx.rvbEnable', 'synthC.smpNameHash', 'pianoA.nameHash'):
+        for key in ('synthCSound.fltType', 'synthCFx.rvbEnable', 'synthC.smpNameHash', 'synth.layerEnableSyn_II'):
             self.assertEqual(self.out.value(key), self.template.value(key), key)
 
     def test_conversion_is_deterministic(self):

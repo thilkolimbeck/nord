@@ -73,18 +73,18 @@ test('converting the sample gives the engine output and its warnings and notes',
   assert.deepEqual(Array.from(state.output), Array.from(reference.output));
   assert.deepEqual(state.warnings, reference.warnings);
   assert.deepEqual(state.notes, reference.notes);
-  assert.equal(state.warnings.length, 5);
-  assert.equal(state.notes.length, 3);
+  assert.equal(state.warnings.length, 7);
+  assert.equal(state.notes.length, 1);
 
   const v = view(session.model);
   assert.equal(v.stateLine, 'panel a+b → layers a+b · ok');
-  assert.deepEqual(v.meters, { warn: 5, notes: 3, error: 0 });
-  assert.deepEqual(v.counts, { warn: '5', notes: '3', error: '0' });
+  assert.deepEqual(v.meters, { warn: 6, notes: 1, error: 0 }); // six segments at most
+  assert.deepEqual(v.counts, { warn: '7', notes: '1', error: '0' });
   assert.deepEqual(v.keys.convert, { disabled: true, lit: false });
   assert.deepEqual(v.keys.save, { disabled: false, lit: true });
   assert.deepEqual(v.keys.notes, { disabled: false, lit: false });
-  assert.equal(v.printout.warnings, '5 warnings');
-  assert.equal(v.printout.notes, '3 notes on switched-off parts');
+  assert.equal(v.printout.warnings, '7 warnings');
+  assert.equal(v.printout.notes, '1 note on switched-off parts');
   assert.deepEqual(v.printout.lines, reference.warnings);
   assert.equal(saveFileName(state), `${NAME}.ns4p`);
 

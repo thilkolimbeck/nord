@@ -5,7 +5,8 @@
  * A Stage 3 zone value names the zones it plays ("11oo") whatever split points are on. A
  * Stage 4 zone value means different zones depending on which split points are on, so the
  * converter looks for the Stage 4 value that plays the same zones under the split points it
- * writes. The Stage 4 octave shift only goes to +/-2.
+ * writes. Like Nord Sound Manager, it prefers the value that also shows those zones with all
+ * three split points on. The Stage 4 octave shift only goes to +/-2.
  */
 import { KB_ZONES } from './generated/tables-ns3.ts';
 import { DEP_TABLES, FIELD_DEP } from './generated/tables-ns4.ts';
@@ -18,16 +19,18 @@ export const WHOLE_KEYBOARD = '1111';
 export const WHOLE_KEYBOARD_VALUE = 5;
 export const OCTAVE_LIMIT = 2;
 
-/** Zone label -> lowest Stage 4 value that shows it, for one set of active split points. */
-function zoneValues(tableId: string, enables: string, maxValue: number): Map<string, number> {
+/**
+ * The Stage 4 value that shows `label` under `enables`, or undefined. Among several, the one that
+ * shows it with all split points on too (as Nord Sound Manager picks, so the zones survive
+ * switching split points on), else the lowest.
+ */
+function zoneValue(tableId: string, enables: string, maxValue: number, label: string): number | undefined {
   const table = DEP_TABLES[tableId];
   if (table === undefined) throw new Error(`no dependency table '${tableId}'`);
-  const found = new Map<string, number>();
-  for (let value = 0; value <= maxValue; value++) {
-    const label = table[`${enables}:${value}`];
-    if (label !== undefined && !found.has(label)) found.set(label, value);
-  }
-  return found;
+  const every = enables.split(':').map(() => '1').join(':');
+  const matches: number[] = [];
+  for (let value = 0; value <= maxValue; value++) if (table[`${enables}:${value}`] === label) matches.push(value);
+  return matches.find((v) => table[`${every}:${v}`] === label) ?? matches[0];
 }
 
 /**
@@ -50,7 +53,7 @@ export function mapZone(m: Mapper, src: string, dst: string, where: string): voi
     if (edit === undefined) throw new Error(`split point '${d}' is not among the edits yet`);
     return String(edit);
   }).join(':');
-  let target = zoneValues(tableId, enables, fieldOf(NS4_LAYOUT, dst).max).get(label);
+  let target = zoneValue(tableId, enables, fieldOf(NS4_LAYOUT, dst).max, label);
   if (target === undefined) {
     if (m.v('common.splitEnable')) {
       m.warn(where, `zones ${label} cannot be played with the active split points, `

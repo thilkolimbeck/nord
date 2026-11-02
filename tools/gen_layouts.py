@@ -378,7 +378,7 @@ def render_tables_ns3(ref: Path, header: str) -> str:
 
 # The TS engine (web/src/engine) needs only what the converter reads: the two layouts (without the
 # firmware names and confidence), the Stage 3 label tables the mapping uses, the Stage 4 split-note
-# table, the keyboard-zone dependency tables and the piano model hashes (membership only).
+# table, the keyboard-zone dependency tables and the piano and sample names (the warnings name them).
 TS_NS3_TABLES = ('ADDED_IN', 'KB_ZONES', 'OSC_CLASSIC_WAVE', 'OSC_CONFIG', 'OSC_SUPER_WAVE', 'PIANO_TYPE',
                  'SPLIT_NOTE', 'SYNTH_OSC')
 TS_VALUE_FIELDS = ('common.splitPosLow',)
@@ -474,8 +474,12 @@ def render_ts_tables_ns4(data: Dict[str, Any], header: str) -> str:
     lines += block('Firmware field key -> [port param id, port width, dependency field keys in key order].',
                    'export const FIELD_DEP: Readonly<Record<string, readonly [string, number, readonly string[]]>>',
                    field_dep)
-    lines += block('Stage 4 piano model hashes (opennord names.generated.ts PIANO_NAMES keys).',
-                   'export const PIANO_NAME_HASHES: readonly number[]', sorted(data['piano_names']), rows=False)
+    lines += block('Stage 4 piano model hash -> name (opennord names.generated.ts).',
+                   'export const PIANO_NAMES: Readonly<Record<number, string>>',
+                   dict(sorted(data['piano_names'].items())))
+    lines += block('Stage 4 sample hash -> name (opennord names.generated.ts).',
+                   'export const SAMPLE_NAMES: Readonly<Record<number, string>>',
+                   dict(sorted(data['sample_names'].items())))
     return '\n'.join(lines)
 
 # ---------------------------------------------------------------- main

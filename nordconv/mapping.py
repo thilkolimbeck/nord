@@ -5,7 +5,8 @@ answers), as corrected by a later cross-check of both formats (kept private
 with the sample program pair). The decisions that shape this module:
 
 - both panels convert: Panel A -> layer A, Panel B -> layer B of each section
-  in scene I; scene II and layer C stay at the neutral template;
+  in scene I; scene II and layer C stay at the neutral template (scene II at
+  the Stage 4 defaults, as Nord Sound Manager leaves it);
 - the mapping is faithful where both models share a table and reports every
   lossy or unmappable parameter that is not at its Stage 3 default;
 - the result is a set of edits for a neutral donor (template.py), never a
@@ -23,8 +24,8 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Tuple
 
 from ._tables_ns3 import SPLIT_NOTE
-from ._tables_ns4 import FIELD_VALUE_TABLE, VALUE_TABLES
-from .layout import NS3_LAYOUT
+from ._tables_ns4 import FIELD_VALUE_TABLE, PIANO_NAMES, VALUE_TABLES
+from .layout import NS3_LAYOUT, NS4_LAYOUT
 from .map_engines import map_organ, map_piano, map_synth
 from .map_fx import SRC_ORGAN, SRC_PIANO, SRC_SYNTH, map_effects, map_rotary, organ_fx_owner
 from .mapper import Mapper, short
@@ -43,12 +44,23 @@ SECTIONS = (  # (Stage 3 engine enable key, Stage 4 layer mask, Stage 4 scene I 
     ('synthCommon{p}.enable', 'synth.layerEnableSyn_I', 'common.sectionEnableSyn_I'),
 )
 FOCUS_KEYS = ('organ.layerFocusOrg_I', 'piano.layerFocusPno_I', 'synth.layerFocusSyn_I')
-# Per-layer effects (0) rather than one block for the section (1, the default): the two
-# Stage 3 panels have their own effects, and a sample program pair (kept private) runs
-# synth A and B with different effects in mode 0.
-PER_LAYER_FX = {'piano.layerEnablePno_I': 'piano.effectsSectionModePno',
-                'synth.layerEnableSyn_I': 'synth.effectsSectionModeSyn'}
-SNAPSHOTS = ('common.leslieRotorAngle', 'common.leslieHornAngle')
+# Per-layer effects (0) rather than one block for the section (1, the default): the two Stage 3
+# panels have their own effects, and Nord Sound Manager writes 0 whether the section plays or not.
+PER_LAYER_FX = ('piano.effectsSectionModePno', 'synth.effectsSectionModeSyn')
+# Scene II keeps the Stage 4 defaults, as Nord Sound Manager does: piano section on with layer A.
+SCENE_II_PIANO, SCENE_II_PIANO_LAYERS = 'common.sectionEnablePno_II', 'piano.layerEnablePno_II'
+SNAPSHOTS = (('common.leslieRotorAngle', 'organ.leslieRotorAngle'),
+             ('common.leslieHornAngle', 'organ.leslieHornAngle'))
+# Stage 3 extern -> the same panel's Stage 4 synth layer, same name and range (Nord Sound Manager copies
+# bank, program and control pedal; the others are the same fields, unproven).
+EXTERN_COPY = (('velCurve', 'externVelCurve'), ('modWheelEnable', 'externModWheelEnable'),
+               ('aftertouchEnable', 'externAftertouchEnable'), ('ctrlPedalEnable', 'externCtrlPedalEnable'),
+               ('swellPedalEnable', 'externSwellPedalEnable'), ('volPedalEnable', 'externVolPedalEnable'),
+               ('bcValue_LSB', 'externBCValue_LSB'), ('bcValue_MSB', 'externBCValue_MSB'),
+               ('pcValue', 'externPCValue'), ('ccValue', 'externCCValue1'))
+# The Stage 4 has one send-on-load switch: Nord Sound Manager takes the one of the selected parameter.
+EXTERN_SEND_ON_LOAD = ('sendOnLoadCC', 'sendOnLoadPC', 'sendOnLoadVol')  # paramSelect 0 CC, 1 PC, 2 Vol
+EXTERN_LOST = ('kbZone', 'octaveShift', 'pitchStickEnable', 'sustainEnable', 'volValue')
 B3, VOX, FARFISA = 0, 1, 2
 # The Stage 3 has one vibrato/chorus selector (V1 C1 V2 C2 V3 C3) for every organ model; a Vox or
 # Farfisa reads it as its own labels (ns3-program-viewer ns3-organ.js). The Stage 4 keeps one
@@ -97,6 +109,7 @@ def map_program(program: Ns3Program) -> MappingResult:
             map_effects(m, p, owner, all(organ_plays.values()), sources)
         _map_extern_and_mixer(m, p, active[p])
     _map_kbd_hold(m)
+    _map_scene_two(m, plays)
     heard = _activity(m.values, plays, active)
     _drop_morphs(m, heard)
     unhandled = tuple(k for k in NS3_LAYOUT.fields if k not in m.read)
@@ -168,20 +181,39 @@ def _map_common(m: Mapper) -> None:
                'the Stage 4 handles a second keyboard differently; set it up on the instrument')
     else:
         m.skip(['common.dualKbdStyle'])  # only matters while Dual KB is on
-    m.skip(SNAPSHOTS)  # rotor positions at save time, not settings (opennord ns4/firmware-params.ts)
+    for src, dst in SNAPSHOTS:  # rotor positions at save time; Nord Sound Manager copies them
+        m.copy(src, dst, w)
     if m.v('common.slotFocus'):
         for key in FOCUS_KEYS:
             m.set(key, 1)
 
 
 def _map_sections(m: Mapper, plays: Dict[Tuple[str, str], bool]) -> None:
-    """Scene I layer and section switches; everything else stays off (neutral template)."""
+    """Scene I layer and section switches, and per-layer effects for piano and synth."""
     for engine, mask_key, section_key in SECTIONS:
         mask = sum(LAYER_BITS[p] for p in PANELS if plays[(engine, p)])
         m.set(mask_key, mask)
         m.set(section_key, int(mask > 0))
-        if mask and mask_key in PER_LAYER_FX:
-            m.set(PER_LAYER_FX[mask_key], 0)
+    for key in PER_LAYER_FX:
+        m.set(key, 0)
+
+
+def _map_scene_two(m: Mapper, plays: Dict[Tuple[str, str], bool]) -> None:
+    """Scene II stays at the Stage 4 defaults, but its piano only plays a piano the converter wrote.
+
+    Nord Sound Manager always leaves the scene II piano on; a layer without a converted piano
+    would play whatever its default id stands for, so that section is switched off instead.
+    A scene II layer whose Stage 3 piano is off gets a warning, as its own reports are notes.
+    """
+    layers = NS4_LAYOUT.fields[SCENE_II_PIANO_LAYERS].default
+    if any(layers & LAYER_BITS[p] and not m.edits.get(f'piano{p}.nameHash') for p in PANELS):
+        m.set(SCENE_II_PIANO, 0)
+        return
+    for p in PANELS:
+        if layers & LAYER_BITS[p] and not plays[(SECTIONS[1][0], p)]:
+            name = PIANO_NAMES[m.edits[f'piano{p}.nameHash']]
+            m.warn('Scene II', f'piano layer {p} ({name}) plays, as Nord Sound Manager leaves scene II; '
+                               f'it holds the piano of Stage 3 Panel {p}, which is off')
 
 
 def _map_layer_detune(m: Mapper) -> None:
@@ -212,27 +244,40 @@ def _map_organ_vibrato(m: Mapper, organ_plays: Dict[str, bool]) -> None:
 def _map_kbd_hold(m: Mapper) -> None:
     """Stage 3 hold per panel -> Stage 4 hold for the section plus a per-layer include switch."""
     holds = {p: m.v(f'synth{p}.kbdHold') for p in PANELS}
+    for p in PANELS:  # always, as Nord Sound Manager does; layer C keeps the Stage 4 default
+        m.set(f'synth{p}.kbdHoldEnableLayer', holds[p])
     if any(holds.values()):
         m.set('synth.kbdHoldEnableCommon', 1)
-        for p in PANELS:
-            m.set(f'synth{p}.kbdHoldEnableLayer', holds[p])
 
 
 def _map_extern_and_mixer(m: Mapper, p: str, active: bool) -> None:
-    extern = [k for k in NS3_LAYOUT.fields if k.startswith(f'extern{p}.') and '.morph' not in k]
-    with m.section(active and bool(m.v(f'extern{p}.enable'))):
-        m.drop(f'Panel {p} extern', extern,
-               'Phase 1 does not convert the extern section (it lives in the Stage 4 synth layers)')
+    """Extern values -> synth layer p with extern left off (as Nord Sound Manager does); mixer reported."""
+    x, w = f'extern{p}', f'Panel {p} extern'
+    with m.section(active and bool(m.v(f'{x}.enable'))):
+        for ns3, ns4 in EXTERN_COPY:
+            m.copy(f'{x}.{ns3}', f'synth{p}.{ns4}', w)
+        select = m.v(f'{x}.paramSelect')
+        sends = [f'{x}.{k}' for k in EXTERN_SEND_ON_LOAD]
+        if 0 <= select < len(sends):
+            m.copy(sends[select], f'synth{p}.externSendOnLoad', w)
+        m.drop(w, [f'{x}.enable', f'{x}.midiCh'],
+               f'the values were carried over to synth layer {p}, but extern must be switched on on the layer, '
+               'and the MIDI channel is set on the Stage 4')
+        m.drop(w, [f'{x}.{k}' for k in EXTERN_LOST], 'the Stage 4 extern has no such setting')
+        m.drop(w, [f'{x}.ccNumber'], 'the Stage 4 CC number has another range (0-120, default 3), scale unverified')
+        m.drop(w, [k for i, k in enumerate(sends) if i != select],
+               'the Stage 4 has one send-on-load switch, taken from the selected parameter')
     mixer = [k for k in NS3_LAYOUT.fields if k.startswith(f'mixer{p}.')]
     with m.section(active):
         m.drop(f'Panel {p} mixer', mixer, 'the Stage 4 audio routing works differently')
 
 
 def _drop_morphs(m: Mapper, heard: Callable[[str], bool]) -> None:
-    """Morph assignments: both models have them, but the Stage 4 encoding is not mapped yet."""
+    """Morph assignments no rule converted (only the filter cutoff and resonance morphs are mapped)."""
     groups: Dict[Tuple[str, bool], List[str]] = defaultdict(list)
+    handled = set(m.read)
     for key in NS3_LAYOUT.fields:
-        if '.morph' in key:
+        if '.morph' in key and key not in handled:
             groups[(_where(key), heard(key))].append(key)
     for (where, on), keys in groups.items():
         changed = [f'{short(k)}={m.v(k):+d}' for k in keys if not m.is_default(k)]

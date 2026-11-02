@@ -57,7 +57,7 @@ Theme follows `prefers-color-scheme`. Accent is the only hue; error state uses a
 5. Print-out (paper), attached under the strip (inset 22px each side, no top border, bottom radius 6px): legend line `print-out · N warnings · M notes on switched-off parts` (the notes part is a button that toggles like the notes key); numbered lines `001  <message>` in mono. Show the engine's messages verbatim (they may be shortened only by CSS wrapping). Idle state: one line "nothing printed yet".
 6. Sections `02 how it works`, `03 limits`, `04 source`: modern style, numbered mono heading, short copy:
    - 02: runs locally in the browser; both panels convert (panel A → layers A, panel B → layers B in scene I); values go through Stage 4's own tables; a donor template fills what's unknown.
-   - 03: link to the README's limitation tables in the public repo; one-paragraph summary (presets, pianos and samples by name, morphs, osc configurations without a Stage 4 counterpart).
+   - 03: link to the README's limitation tables in the public repo; one-paragraph summary (synth presets not in the Stage 4 library, pianos and samples by id when the Stage 4 has them, most morphs, osc configurations without a Stage 4 counterpart).
    - 04: AGPL-3.0, link to the public GitHub repo, credits: opennord, ns4decode (MIT), ns3-program-viewer.
 7. Footer legend line: `agpl-3.0 · source on github · not affiliated with clavia or nord`.
 

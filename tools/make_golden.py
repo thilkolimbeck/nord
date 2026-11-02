@@ -60,6 +60,7 @@ sys.path.insert(0, str(ROOT))  # isolated mode (-I) leaves the repository off sy
 from nordconv.bits import write_bits  # noqa: E402
 from nordconv.cbin import FORMAT_LEGACY, NordFileError, build_cbin, parse_cbin  # noqa: E402
 from nordconv.layout import NS3_LAYOUT  # noqa: E402
+from nordconv.map_engines import HASH_OFFSET  # noqa: E402
 from nordconv.convert import ConversionError, convert_bytes  # noqa: E402
 from nordconv.template import TEMPLATE_PATH, load_template  # noqa: E402
 
@@ -123,6 +124,11 @@ def variant(changes: Dict[str, int], version: Optional[int] = None, **header: An
     return build_cbin(replace(parsed.header, **header), bytes(body))
 
 
+def stage3_hash(ns4_hash: int) -> int:
+    """The Stage 3 encoding of a Stage 4 name hash (the inverse of map_engines.ns4_hash)."""
+    return (ns4_hash - HASH_OFFSET) & 0xFFFFFFFF
+
+
 def build_cases() -> Dict[str, bytes]:
     """Damaged and edge-case inputs, built from CASE_BASE (and the donor template for a wrong tag)."""
     sample = CASE_BASE.read_bytes()
@@ -179,6 +185,16 @@ def build_cases() -> Dict[str, bytes]:
         'rounding ties (fltMod +30, oscMod -30)': variant({**synth_a, 'synthA.fltMod': 30, 'synthA.oscMod': -30}),
         'filter velocity amount (fltMod -45)': variant({**synth_a, 'synthA.fltMod': -45}),
         'filter velocity amount (fltMod -3)': variant({**synth_a, 'synthA.fltMod': -3}),
+        # Rules from three Nord Sound Manager conversions that the viewer fixtures miss.
+        'Sample oscillator with a named Stage 4 sample': variant({**synth_a, 'synthA.oscBank': 4,
+                                                                  'synthA.smpNameHash': stage3_hash(0x002EBCAA),
+                                                                  'synthA.oscConf': 4, 'synthA.dualOscDetune': 0,
+                                                                  'synthA.oscCtrl': 5}),
+        'substituted piano with an entry, piano off': variant({'common.slotEnable': 1, 'pianoA.enable': 0,
+                                                               'pianoA.nameHash': stage3_hash(0xB54A2C61),
+                                                               'pianoA.entry': 3}),
+        'extern CC sent on load': variant({'common.slotEnable': 1, 'externA.enable': 1, 'externA.paramSelect': 0,
+                                           'externA.ccNumber': 7, 'externA.ccValue': 9, 'externA.sendOnLoadCC': 1}),
     }
 
 
