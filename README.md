@@ -39,7 +39,8 @@ Safety:
 
 ## Warnings
 
-Warnings go to stderr, one line per lost or approximated setting, for example:
+Warnings go to stderr, one line per conversion rule or section that loses or
+approximates something; one line can name several fields, for example:
 
 ```
 WARNING: My Program.ns3f: Panel A effects: ampBass=20 not converted: in filter mode it is the dry/wet mix, which has no confirmed Stage 4 field
@@ -47,6 +48,8 @@ WARNING: My Program.ns3f: Panel A effects: ampBass=20 not converted: in filter m
 
 A setting at its Stage 3 default is never reported. An all-default program
 converts without a single warning.
+The mappings listed under "Copied without proof" (see Limitations) are never
+reported.
 
 Settings of a section that is switched off in the source (an engine that is
 off, an inactive panel, an effect unit that is off or whose source engine

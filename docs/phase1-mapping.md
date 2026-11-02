@@ -11,7 +11,7 @@ The detailed evidence (file:line citations, full field dumps of the pair) is kep
 2. **Every NS3 bit decodes. NS4 does not:** the public map covers about 80–84 % of the 824 body bytes, and the rest is unknown. A writer therefore has to *patch a donor `.ns4p`*, not serialise one from scratch. This is how opennord works, and it means the unknown bytes come from the template.
 3. **The sample's `.ns4p` is a reworked version of its `.ns3f`, not a mechanical conversion.** [V] The structure matches (Panel A → layer A, Panel B → layer B), but many values were changed by hand on the Stage 4. **So it confirms the structure, not the value mapping.** The converter shouldn't be tuned to reproduce it.
 4. **Nord Sound Manager v9.10+ (Mar 2025) converts NS3 → NS4 officially** and writes a conversion log. Nord's own page says some NS3 oscillator configurations "can not be mapped".
-5. **Prior art:** opennord (AGPL-3) has an NS3 → NS4 migrator. It converts **only Panel A** and skips morphs, arp and rotary. Its tests use synthetic files only, and its docs say the output "hasn't been compared by ear on a real Stage 4".
+5. **Prior art:** opennord (AGPL-3) has an NS3 → NS4 migrator. It converts **only one panel**, the first active one (Panel A, or Panel B when only Panel B is active), and skips morphs, arp and rotary. Its tests use synthetic files only, and its docs say the output "hasn't been compared by ear on a real Stage 4".
 
 ## 2. Format summary
 
@@ -84,7 +84,7 @@ Display tables (ms, Hz, dB) are **identical** between models at every point chec
 1. **How was the sample's `.ns4p` made**: by hand on the Stage 4, or NSM conversion plus edits? If you have NSM ≥ 9.10, an **unedited** NSM conversion of the same `.ns3f` and its log would be real ground truth. A few more such pairs would make it much better.
 2. **Fidelity:** is a faithful parameter mapping with warnings ("close enough") OK, or do you need audio fidelity? Exact fidelity isn't achievable: the engines differ and NSM itself can't do it.
 3. **Scope:** programs only (`.ns3f` → `.ns4p`)? Performances don't exist as a file type on the Stage 3. Samples (`.nsmp`) and pianos are libraries, not converted data, so I'd leave them out.
-4. **Both panels:** may Panel A → layers A and Panel B → layers B in scene I, as your file does? (opennord drops Panel B.)
+4. **Both panels:** may Panel A → layers A and Panel B → layers B in scene I, as your file does? (opennord converts only the first active panel, so it drops Panel B when both panels are active.)
 5. **Mod env:** map it to the filter env, the osc env, or both, depending on what the mod amounts target?
 6. **Reverb Room/Stage/Hall 1:** base type or variation?
 7. **Donor template:** your `.ns4p` after resetting its leftovers, or opennord's MIT `regressionTest.ns4p`? An init program saved from your Stage 4 would be cleanest.
