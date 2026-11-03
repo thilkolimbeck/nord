@@ -1,0 +1,19 @@
+/* Status strip in the panel's legend row (docs/web-design.md, "Editor"). Uses the tokens of editor.css. */
+
+.status-item,
+.status-light {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-item {
+  gap: 8px;
+}
+
+/* Blocked, error, not supported: the LED becomes an accent outline. */
+.led.led-alert {
+  box-sizing: border-box;
+  border: 1px solid var(--accent);
+  background: transparent;
+}

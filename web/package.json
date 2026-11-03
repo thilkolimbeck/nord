@@ -14,7 +14,8 @@
     "preview": "vite preview",
     "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "gen": "python3 -I ../tools/gen_layouts.py \"${OPENNORD:?set OPENNORD to an opennord checkout}\" && python3 -I ../tools/make_golden.py"
+    "gen": "python3 -I ../tools/gen_layouts.py \"${OPENNORD:?set OPENNORD to an opennord checkout}\" && python3 -I ../tools/make_golden.py",
+    "gen:editor": "python3 -I ../tools/gen_editor_tables.py"
   },
   "devDependencies": {
     "typescript": "7.0.2",

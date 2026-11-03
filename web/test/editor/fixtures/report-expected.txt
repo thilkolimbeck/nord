@@ -1,0 +1,37 @@
+nord stage 4 parameter report, for reading only
+This is not a program file. The Stage 4, Nord Sound Manager and this editor cannot import it.
+program: Warm Pad · nordconvert editor 0.1.0 · 2026-11-03
+category: 5
+baseline: the editor's init program (Stage 4 layout defaults, synth on, layer A on)
+[not verified] = no Stage 4 display label or an unverified meaning; the number is the stored step.
+[not implemented] = the editor does not play this; the value is stored and exported as set.
+
+program · transpose
+  program transpose on/off      on [not implemented]              init off
+  program transpose amount      -2 semitones [not implemented]    init 1 semitones
+organ · organ a
+  org preset k db1              3 [not verified] [not implemented]  init 8
+synth · layers
+  layers on                     A+B                               init A
+synth · layer a · layers
+  pan                           -20 [not verified]                init 0
+synth · layer a · filter
+  freq                          988 Hz                            init 32 kHz
+  res                           64 [not verified]                 init 0
+synth · layer a · amp env
+  attack                        126 ms                            init 3.0 ms
+  release                       1.13 s                            init 3.0 ms
+synth · layer a · arp
+  run                           on [not implemented]              init off
+synth · layer b · oscillator
+  mode                          samples [not implemented]         init analog
+  type                          4 (WAVE) [not implemented]        init 1 (ANALOG)
+  pitch                         -12 semi                          init + 0 semi
+layer effects · layer a · synth fx
+  fx reverb on/off              on [not implemented]              init off
+no control
+  synth section on/off (layer scene ii)  on [not implemented]              init off
+no control · layer a
+  freq · wheel morph            +40 [not verified] [not implemented]  init 0
+
+16 changed values

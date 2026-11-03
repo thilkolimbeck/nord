@@ -1,0 +1,66 @@
+/* Keyboard region (docs/web-design.md, "Editor" → "Keyboard region"). Uses the tokens of editor.css. */
+
+.kb-legend {
+  margin: 0 0 8px;
+  color: var(--legend-panel);
+}
+
+/* Scrolls sideways inside the region on narrow screens; the page itself never does. */
+.kb-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  /* room for the 2px focus ring at offset 2px */
+  padding: 4px;
+  margin: -4px;
+}
+
+.kb-keys {
+  --kb-white-h: 96px;
+  --kb-black-h: 60px;
+  --kb-white-w: calc(100% / var(--kb-whites));
+  --kb-black-w: calc(var(--kb-white-w) * 0.6);
+  position: relative;
+  display: flex;
+  gap: 1px;
+  width: 100%;
+  height: var(--kb-white-h);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.kb-key {
+  touch-action: none;
+  transition: background-color var(--transition);
+}
+
+.kb-white {
+  flex: 1 1 0;
+  min-width: 0;
+  height: var(--kb-white-h);
+  background: var(--panel-text);
+  border-radius: 0 0 4px 4px;
+}
+
+.kb-black {
+  position: absolute;
+  top: 0;
+  left: calc(var(--kb-white-w) * var(--kb-at) - var(--kb-black-w) / 2);
+  width: var(--kb-black-w);
+  height: var(--kb-black-h);
+  box-sizing: border-box;
+  background: var(--key);
+  border: 1px solid var(--key-border);
+}
+
+.kb-key.is-held {
+  background: var(--accent);
+}
+
+/* Narrow screens: two octaves visible (14 white keys), the rest scrolls inside the region. */
+@media (max-width: 759px) {
+  .kb-keys {
+    width: calc(100% * var(--kb-whites) / 14);
+  }
+}

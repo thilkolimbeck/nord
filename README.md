@@ -290,6 +290,82 @@ upstream's headers: a strict CSP (`default-src 'none'`, same-origin scripts,
 styles and fonts only, no inline code), so the page cannot load code from or
 connect to any other host.
 
+## Editor
+
+`web/editor/` is a second page: a Stage 4 sound editor that runs entirely in
+the browser, served at `/nordconvert/editor`. It edits all 955 fields of a
+Stage 4 program and plays the synth section through Web Audio. The sound is
+an approximation, not a Stage 4: no recordings of the instrument were used.
+
+```sh
+cd web
+npm run dev          # then open http://localhost:5173/nordconvert/editor
+```
+
+Controls:
+
+- Every control works with the keyboard and shows its value, unit and range.
+  "nv" marks a value that is not verified (no Stage 4 display table, or a
+  guessed curve), "coarse" one the browser engine only approximates, "no sound
+  in MVP" one that is stored and exported but not played.
+- Virtual keyboard: mouse, touch and pen, several notes at once; velocity
+  comes from where you press the key (top soft, bottom loud).
+- Computer keyboard, by key position (so the shape holds on QWERTZ): A S D F
+  G H J K L are the white keys C to D, W E T Y U O P the black keys, Z and X
+  shift an octave down and up, Esc stops every note (panic). Keys play while
+  focus is not in a text field or a select, and not with Cmd, Ctrl or Alt.
+  Velocity is fixed.
+- MIDI input only, every channel: notes with velocity, sustain (CC64), pitch
+  bend, and mod wheel, aftertouch and CC11 for the vibrato modes that use
+  them; CC120 and CC123 stop every note. The editor never sends MIDI or SysEx.
+  `enable midi` asks for the browser's permission. Chrome, Edge and Firefox
+  support Web MIDI; Safari does not, and the status line says so.
+- Audio starts with the first click or key press, as browsers require; a
+  blocked audio context shows in the status line. Switching tabs or leaving
+  the window releases every note.
+
+Browsers: a current Chrome, Edge, Firefox or Safari (desktop first; narrow
+screens stack the regions). iOS mutes Web Audio while the ringer switch is
+off.
+
+Implemented: the synth section of scene I with layers A, B and C (analog
+oscillators, FM approximated, filter, three envelopes, LFO, vibrato, voice
+modes, unison, glide, 46 voices). Not implemented, shown and stored but
+silent: organ, piano, layer effects and rotary, Nord samples and the Wave
+oscillator type (proprietary), extern, the arpeggiator's sound, morph
+editing (non-zero morphs show as a dot on their control), split zones and
+scene II.
+
+Files, in the files box:
+
+- **App preset** (`save`, `load`, `app-preset ↓`, `import`): the whole editor
+  state as versioned JSON, lossless through save, load, download and
+  re-import. It is for this editor only; the Stage 4 and Nord Sound Manager
+  cannot open it. `save` keeps it in this browser; a working copy is also
+  autosaved there.
+- **open .ns4p**: reads a Stage 4 program (format 3.07–3.13) with the
+  converter's reader; all 955 fields fill the editor, and the print-out lists
+  what the editor does not play.
+- **Stage-4-Programm (experimentell)** (`stage-4-programm (experimentell) ↓`,
+  after a confirmation): writes a `.ns4p` file named after the program (the
+  Stage 4 shows the file name as the program name). It patches a donor, the
+  opened program when it is format 3.13, the neutral converter template
+  otherwise, and passes the converter's verification (parsed again, every
+  field compared, undecoded bits unchanged) before it downloads. That proves
+  the structure, not that a Stage 4 accepts it: untested on hardware, so load
+  it into a free slot.
+- **report ↓**: a plain-text parameter report of every value that differs from
+  the editor's init program, with section, layer, label, value and unit, and
+  markers for values that are not verified or not implemented. It is for
+  reading (for example to set a sound up by hand) and not a program file.
+
+Compatibility limits: about a fifth of a Stage 4 file is not decoded, so the
+export keeps the donor's undecoded bits, which may depend on values you
+changed. Layer enable bits and scene handling come from the converter and are
+unverified on hardware. The editor plays every enabled layer across the whole
+keyboard. Plan and decisions: `docs/editor-plan.md`; what is known about the
+Stage 4: `docs/editor-feasibility.md`.
+
 ## Licence
 
 AGPL-3.0-or-later (see `LICENSE`). The layouts and tables derive from
