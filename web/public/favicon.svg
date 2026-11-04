@@ -1,1 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1.5" fill="#ff6a1a"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
+  <!-- The editor's icon: four white keys F G A B with G held, in the editor's own tokens; dark follows the system. -->
+  <style>
+    .bg { fill: #f1f1ee; }
+    .white { fill: #ffffff; stroke: #c9c9c2; }
+    .black { fill: #262626; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #1b1b1b; }
+      .white { fill: #e9e9e4; stroke: #e9e9e4; }
+      .black { fill: #262626; stroke: #1b1b1b; }
+    }
+  </style>
+  <rect class="bg" width="96" height="96" rx="22"/>
+  <g stroke-width="2">
+    <rect class="white" x="16" y="22" width="16" height="52" rx="2"/>
+    <rect x="32" y="22" width="16" height="52" rx="2" fill="#ff6a1a" stroke="#ff6a1a"/>
+    <rect class="white" x="48" y="22" width="16" height="52" rx="2"/>
+    <rect class="white" x="64" y="22" width="16" height="52" rx="2"/>
+  </g>
+  <g class="black">
+    <rect x="27" y="23" width="10" height="29"/>
+    <rect x="43" y="23" width="10" height="29"/>
+    <rect x="59" y="23" width="10" height="29"/>
+  </g>
+</svg>
