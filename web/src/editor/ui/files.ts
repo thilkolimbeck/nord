@@ -11,10 +11,16 @@
 import type { ParamStore, ProgramSnapshot } from '../model/store.ts';
 import { ExportError, exportExperimentalNs4p, type Exported } from '../formats/ns4p-export.ts';
 import { ImportError, importNs4p, MAX_NS4P_BYTES } from '../formats/ns4p-import.ts';
-import { MAX_PRESET_BYTES, PresetError, presetFileName, readPreset, toPresetJson } from '../formats/preset.ts';
+import {
+  MAX_PRESET_BYTES, NO_EXTRAS, PresetError, type PresetExtras, presetFileName, readPreset, readPresetExtras, toPresetJsonWith,
+} from '../formats/preset.ts';
+import { MAX_PRESET_WITH_SAMPLES_BYTES } from '../formats/samples-db.ts';
 import { parameterReport, reportFileName } from '../formats/report.ts';
-import { PresetSlots, type SlotInfo, StorageError, type StorageLike, type StorageProblem } from '../formats/storage.ts';
+import {
+  PresetSlots, type SlotInfo, StorageError, type StorageLike, type StorageProblem, type StoredPreset,
+} from '../formats/storage.ts';
 import { initProgram } from '../model/init.ts';
+import type { LayerSamples } from '../model/user-samples.ts';
 import type { DisplayApi } from './display.ts';
 import type { PrintoutApi } from './printout.ts';
 
@@ -46,6 +52,25 @@ export interface FileDeps {
   readonly onLoad?: () => void;
   /** The clock for the report's date. Default: the current time. */
   readonly now?: () => Date;
+  /** Own samples (plan 15.3): what app presets carry besides the program; default none. */
+  readonly samples?: PresetSamples;
+}
+
+/**
+ * Own samples as app presets carry them (plan 15.3): the layers' assignments, the files to embed
+ * in a download ("embed own samples" on), and what to do with a loaded preset's extras.
+ */
+export interface PresetSamples {
+  /** The assignments and, when the user asked to embed, the files (notes: assigned files not embedded). */
+  extras(embed: boolean): Promise<PresetExtras & { readonly notes?: readonly string[] }>;
+  /** A preset loaded: take its assignments, store its embedded files; resolves with notes for the print-out. */
+  apply(extras: PresetExtras): Promise<readonly string[]>;
+  /** A program without assignments replaced the state (a .ns4p file). */
+  clear(): void;
+  /** The assignments now, for browser slots and the working copy (no files); default none. */
+  current?(): LayerSamples;
+  /** Called on every assignment change, so the working copy is autosaved; returns the unsubscribe function. */
+  onChange?(fn: () => void): () => void;
 }
 
 export const READ_FAILED = 'could not read the file';
@@ -77,6 +102,11 @@ export function downloadFile(fileName: string, data: string | Uint8Array, type: 
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** The UTF-8 length of a text (the size of the file it is written to). */
+function utf8Length(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -105,6 +135,7 @@ export class FileActions {
   readonly #delay: number;
   readonly #onLoad: (() => void) | null;
   readonly #now: () => Date;
+  readonly #samples: PresetSamples | null;
   #generation = 0;
   #timer: ReturnType<typeof setTimeout> | null = null;
   #autosaveWarned = false;
@@ -119,6 +150,7 @@ export class FileActions {
     this.#delay = deps.autosaveDelay ?? AUTOSAVE_DELAY;
     this.#onLoad = deps.onLoad ?? null;
     this.#now = deps.now ?? (() => new Date());
+    this.#samples = deps.samples ?? null;
   }
 
   #name(): string {
@@ -139,6 +171,30 @@ export class FileActions {
     this.#store.load(snapshot, 'load');
   }
 
+  /** The layers' own sample references to keep with a browser slot or the working copy. */
+  #currentSamples(): LayerSamples {
+    return this.#samples?.current?.() ?? {};
+  }
+
+  /**
+   * A browser slot or the working copy loaded: hand its own sample references to the page (no
+   * embedded files there) and print what that reports, unless a newer file action has started.
+   */
+  #applyStoredSamples(stored: StoredPreset, generation: number): void {
+    const notes = stored.notes;
+    if (this.#samples === null) {
+      if (notes.length > 0) this.#printout.print(notes, 'notes');
+      return;
+    }
+    void this.#samples.apply({ samples: stored.samples, embedded: new Map() }).then((sampleNotes) => {
+      if (generation !== this.#generation) return;
+      const lines = [...notes, ...sampleNotes];
+      if (lines.length > 0) this.#printout.print(lines, 'notes');
+    }, (err: unknown) => {
+      this.#printout.print([...notes, `own samples not loaded: ${messageOf(err)}`], 'notes');
+    });
+  }
+
   /** A user load replaced the state: tell the page (it stops the notes). */
   #loaded(): void {
     this.#onLoad?.();
@@ -148,7 +204,7 @@ export class FileActions {
   save(): SlotInfo | null {
     const name = this.#name();
     try {
-      const info = this.#slots.save(name, this.#store.snapshot());
+      const info = this.#slots.save(name, this.#store.snapshot(), this.#currentSamples());
       this.#printout.print([`app preset "${name}" saved in this browser (${slotDate(info.savedAt)})`,
         'it stays in this browser only: use app-preset ↓ to keep a copy as a file'], 'result');
       this.#info(`saved "${name}"`);
@@ -170,9 +226,11 @@ export class FileActions {
 
   /** `load`: replace the state with a saved preset. */
   loadSlot(slot: SlotInfo): boolean {
-    this.#generation += 1;
+    const generation = ++this.#generation;
+    let stored: StoredPreset;
     try {
-      this.#apply(this.#slots.load(slot.id));
+      stored = this.#slots.loadPreset(slot.id);
+      this.#apply(stored.snapshot);
     } catch (err) {
       const reason = err instanceof PresetError || err instanceof StorageError ? err.message : messageOf(err);
       this.#fail([`app preset "${slot.name}" not loaded: ${reason}`], 'not loaded');
@@ -181,14 +239,58 @@ export class FileActions {
     this.#loaded();
     this.#printout.print([`app preset "${slot.name}" loaded from this browser (saved ${slotDate(slot.savedAt)})`], 'result');
     this.#info(`loaded "${slot.name}"`);
+    // The slot's own sample references replace the current ones (none in a slot saved without any).
+    this.#applyStoredSamples(stored, generation);
     return true;
   }
 
-  /** `app-preset ↓`: download the state as an app preset JSON file. */
-  downloadPreset(): string {
+  /** `delete` in the load list, after its confirmation: remove a saved preset from this browser. */
+  removeSlot(slot: SlotInfo): boolean {
+    try {
+      this.#slots.remove(slot.id);
+    } catch (err) {
+      this.#fail([`app preset "${slot.name}" not deleted: ${messageOf(err)}`], 'not deleted');
+      return false;
+    }
+    this.#printout.print([`app preset "${slot.name}" deleted from this browser`], 'result');
+    this.#info(`deleted "${slot.name}"`);
+    return true;
+  }
+
+  /**
+   * `app-preset ↓`: download the state as an app preset JSON file, with the layers' own sample
+   * references and, with `embed` on, the sample files themselves (plan 15.3).
+   */
+  async downloadPreset(embed = false): Promise<string> {
     const fileName = presetFileName(this.#name());
-    this.#download(fileName, toPresetJson(this.#store.snapshot(), this.#appVersion), 'application/json');
+    const snapshot = this.#store.snapshot();
+    // Without the files the references stay: the layers keep their own samples on this device.
+    const references: PresetExtras = { samples: this.#currentSamples(), embedded: new Map() };
+    let extras: PresetExtras = this.#samples === null ? NO_EXTRAS : references;
+    const notes: string[] = [];
+    try {
+      if (this.#samples !== null) {
+        const got = await this.#samples.extras(embed);
+        extras = got;
+        notes.push(...(got.notes ?? []));
+      }
+    } catch (err) {
+      notes.push(`own samples not embedded: ${messageOf(err)}`);
+    }
+    let text = toPresetJsonWith(snapshot, this.#appVersion, extras);
+    // A file the import would refuse whole (48 MB) is never written: then the references only.
+    if (extras.embedded.size > 0 && utf8Length(text) > MAX_PRESET_WITH_SAMPLES_BYTES) {
+      notes.push(`own samples not embedded: the preset would be larger than ${MAX_PRESET_WITH_SAMPLES_BYTES / 1024 / 1024} MB, `
+        + 'more than an import accepts');
+      extras = { samples: extras.samples, embedded: new Map() };
+      text = toPresetJsonWith(snapshot, this.#appVersion, extras);
+    }
+    this.#download(fileName, text, 'application/json');
+    const embedded = extras.embedded.size;
+    // One print: a print replaces the lines before it, so the notes go with the result.
     this.#printout.print([`app preset downloaded: ${fileName}`,
+      ...(embedded > 0 ? [`it embeds ${embedded} own ${embedded === 1 ? 'sample' : 'samples'}: share it only as you would the audio files`] : []),
+      ...notes,
       'an app preset is for this editor only; the stage 4 and nord sound manager cannot open it'], 'result');
     return fileName;
   }
@@ -196,8 +298,10 @@ export class FileActions {
   /** `import`: read an app preset JSON file and replace the state with it. */
   async importPreset(file: FileLike): Promise<boolean> {
     const generation = ++this.#generation;
-    if (file.size > MAX_PRESET_BYTES) {
-      this.#fail([`${file.name}: not a preset file: larger than 1 MB`], 'not a preset file');
+    // Up to 48 MB only for a preset that embeds own samples: readPreset checks the text (plan 15.3).
+    if (file.size > MAX_PRESET_WITH_SAMPLES_BYTES) {
+      this.#fail([`${file.name}: not a preset file: larger than ${MAX_PRESET_WITH_SAMPLES_BYTES / 1024 / 1024} MB`],
+        'not a preset file');
       return false;
     }
     let text: string;
@@ -209,10 +313,16 @@ export class FileActions {
     }
     if (generation !== this.#generation) return false;
     try {
+      if (file.size > MAX_PRESET_BYTES && !text.includes('"embeddedSamples"')) {
+        throw new PresetError('not a preset file', 'not a preset file: larger than 1 MB');
+      }
       const { snapshot, notes } = readPreset(text);
+      const extras = readPresetExtras(text);
       this.#apply(snapshot);
       this.#loaded();
-      this.#printout.print([`app preset imported: ${file.name}`, ...notes], 'result');
+      const sampleNotes = this.#samples === null ? [] : await this.#samples.apply(extras);
+      if (generation !== this.#generation) return true;
+      this.#printout.print([`app preset imported: ${file.name}`, ...notes, ...extras.notes, ...sampleNotes], 'result');
       this.#info(`imported "${snapshot.name}"`);
       return true;
     } catch (err) {
@@ -240,6 +350,7 @@ export class FileActions {
     try {
       const { snapshot, notes } = importNs4p(file.name, bytes);
       this.#apply(snapshot);
+      this.#samples?.clear();
       this.#loaded();
       this.#printout.print([`opened ${file.name}`, ...notes], 'notes');
       this.#info(`opened ${file.name} · ${notes[0] ?? ''}`.replace(/ · $/, ''));
@@ -285,10 +396,11 @@ export class FileActions {
 
   /** Load the autosaved working copy, if there is a readable one; true when it was restored. */
   restoreWorkingCopy(): boolean {
-    const snapshot = this.#slots.loadWorkingCopy();
-    if (snapshot === null) return false;
-    this.#apply(snapshot);
+    const stored = this.#slots.loadWorkingPreset();
+    if (stored === null) return false;
+    this.#apply(stored.snapshot);
     this.#printout.print(['restored the working copy from this browser'], 'notes');
+    this.#applyStoredSamples(stored, this.#generation);
     return true;
   }
 
@@ -298,7 +410,8 @@ export class FileActions {
       clearTimeout(this.#timer);
       this.#timer = null;
     }
-    const problem = this.#slots.available ? this.#slots.saveWorkingCopy(this.#store.snapshot()) : 'unavailable';
+    const problem = this.#slots.available
+      ? this.#slots.saveWorkingCopy(this.#store.snapshot(), this.#currentSamples()) : 'unavailable';
     if (problem !== null && !this.#autosaveWarned) {
       this.#autosaveWarned = true;
       this.#printout.print([`working copy not autosaved: ${new StorageError(problem).message}`], 'notes');
@@ -306,11 +419,15 @@ export class FileActions {
     return problem;
   }
 
-  /** Schedule the autosave on every value batch and every name edit; returns the unsubscribe function. */
+  /**
+   * Schedule the autosave on every value batch, every name edit and every own sample assignment
+   * change; returns the unsubscribe function.
+   */
   watchStore(): () => void {
     const offs = [
       this.#store.onChange(() => this.scheduleAutosave()),
       this.#store.onNameChange(() => this.scheduleAutosave()),
+      ...(this.#samples?.onChange === undefined ? [] : [this.#samples.onChange(() => this.scheduleAutosave())]),
     ];
     return () => { for (const off of offs) off(); };
   }

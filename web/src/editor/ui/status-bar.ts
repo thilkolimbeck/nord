@@ -96,6 +96,8 @@ export function mountStatusBar(root: HTMLElement, deps: StatusBarDeps): StatusBa
       }
       setLed(midiLed, view.led);
       midiText.textContent = view.text;
+      // 'connected: <names>' is cut to the reserved width; the title keeps every name.
+      midiText.title = view.text;
       const description = view.description ?? `midi ${view.text}`;
       if (midiDesc.textContent !== description && midiDesc.textContent !== '') announce.textContent = description;
       midiDesc.textContent = description;

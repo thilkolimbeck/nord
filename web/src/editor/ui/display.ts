@@ -35,6 +35,9 @@ export function mountDisplay(root: HTMLElement, store: ParamStore): DisplayApi {
     const d = touched === null ? null : descriptorOf(touched);
     param.textContent = d === null ? '—' : displayParamLine(d, store.get(d.key), store);
     state.textContent = info ?? displayStateLine(d, d === null ? 0 : store.get(d.key), store, edited.size);
+    // Each line stays one line (cut with an ellipsis); the title keeps the whole text.
+    param.title = param.textContent;
+    state.title = state.textContent;
   };
 
   const offs = [

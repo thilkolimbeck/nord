@@ -3,8 +3,9 @@
  * 13.4), one line of controls: layer scene keys I II, section keys organ piano synth with their
  * LEDs (on or off in the active scene), the three split points (key, position, xfade), transpose
  * and the master clock (tempo, a tap key that sets it from taps, keyboard sync, the tap pedal
- * switch). Morph assignments and the preset references, aux keyboard and output routing stay
- * read-only behind "show values".
+ * switch). A second line holds the aux keyboard and output routing (plan 15.8): editable, stored
+ * and exported, no sound (the browser has neither an aux keyboard nor output buses). The morph
+ * count and the preset references stay read-only behind "show values".
  */
 import { setSectionEnabled } from '../model/actions.ts';
 import { TapTempo } from '../model/clock.ts';
@@ -22,8 +23,10 @@ import { morphCountText, sceneKeys, sectionKeys } from './region-model.ts';
 import { group } from './section-panel.ts';
 
 const POINTS = ['Low', 'Mid', 'High'] as const;
-/** Groups of the program region shown read-only behind "show values". */
-const READ_ONLY_GROUPS = ['presets', 'aux-kb', 'output'];
+/** Groups of the program region shown read-only behind "show values", with why they stay read-only (plan 15.8). */
+const READ_ONLY_GROUPS: Readonly<Record<string, string>> = { presets: 'the preset library is nord content (p.41)' };
+/** Groups of stored settings drawn as controls on the second line (plan 15.8). */
+const STORED_GROUPS = ['aux-kb', 'output'];
 
 export function mountProgramPanel(root: HTMLElement, store: ParamStore, onTouch: OnTouch): RegionPanelApi {
   const region = PANEL.find((r) => r.id === 'program')!;
@@ -108,7 +111,7 @@ export function mountProgramPanel(root: HTMLElement, store: ParamStore, onTouch:
   const body = h('div', { class: 'readouts', id: bodyId, hidden: true });
   const toggle = h('button', { class: 'text-button show-values', type: 'button', 'aria-expanded': 'false',
     'aria-controls': bodyId }, 'show values');
-  const readOnly = region.groups.filter((g) => READ_ONLY_GROUPS.includes(g.id));
+  const readOnly = region.groups.filter((g) => g.id in READ_ONLY_GROUPS);
   const lines: { refresh(): void }[] = [];
   const morphKeys = NS4_KEYS.filter((k) => morphParent(k) !== null);
   const morphValue = h('span', { class: 'readout-value' });
@@ -124,7 +127,7 @@ export function mountProgramPanel(root: HTMLElement, store: ParamStore, onTouch:
       const rows = keysOf(g, null).map((k) => readout(k, store));
       lines.push(...rows);
       return h('div', { class: 'readout-group' }, h('p', { class: 'readout-group-legend' }, g.title),
-        ...rows.map((r) => r.el));
+        h('p', { class: 'region-note' }, READ_ONLY_GROUPS[g.id]!), ...rows.map((r) => r.el));
     }),
   );
   const watchedReadouts = new Set<Ns4Key>(['common.splitEnabled', ...readOnly.flatMap((g) => keysOf(g, null))]);
@@ -143,11 +146,15 @@ export function mountProgramPanel(root: HTMLElement, store: ParamStore, onTouch:
   );
   showMorphs();
 
+  const storedGroups = region.groups.filter((g) => STORED_GROUPS.includes(g.id))
+    .map((g) => group(g.id, g.title, ...keysOf(g, null).map(make)));
+
   const legendId = uid('program-legend');
   root.replaceChildren(
     h('div', { class: 'program-line', role: 'group', 'aria-labelledby': legendId },
       h('p', { class: 'region-legend', id: legendId }, 'program'),
       sceneGroup, sectionGroup, splitGroup, transposeGroup, clockGroup),
+    h('div', { class: 'program-stored' }, ...storedGroups),
     toggle, body);
 
   return {

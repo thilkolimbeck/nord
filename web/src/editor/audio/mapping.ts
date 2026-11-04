@@ -98,10 +98,19 @@ export function oscCtrl(values: ValueReader, layer: SynthLayer): number {
   return clamp(knob(values, key(layer, 'synth{L}Sound.oscCtrl')) / 10, 0, 1);
 }
 
-/** Why a layer cannot sound (samples mode, wave type, extern), or null when it can. */
+/** The silent reason of a samples-mode layer without an own sample to play. */
+export const SAMPLES_MODE_SILENT = 'samples mode: no own sample assigned (nord samples are not available)';
+
+/**
+ * Why a layer cannot sound with the native oscillators (samples mode, wave type, extern), or null
+ * when it can. A source provider may still cover the layer (an own sample in samples mode,
+ * sources.ts layerSilence); an extern layer never sounds here, it plays over MIDI out (plan 15.6).
+ */
 export function silentReason(values: ValueReader, layer: SynthLayer): string | null {
-  if (values.get(key(layer, 'synth{L}.externEnable')) !== 0) return 'extern (MIDI out) is not implemented';
-  if (values.get(key(layer, 'synth{L}.mode')) === 0) return 'samples mode is not implemented (Nord samples)';
+  if (values.get(key(layer, 'synth{L}.externEnable')) !== 0) {
+    return 'extern: it makes no sound here; with midi out on it plays the extern channel';
+  }
+  if (values.get(key(layer, 'synth{L}.mode')) === 0) return SAMPLES_MODE_SILENT;
   if (values.get(key(layer, 'synth{L}Sound.oscBank')) === 3) return 'the wave oscillator type is not implemented (Nord wavetables)';
   return null;
 }
@@ -443,8 +452,11 @@ export function vibDepthCents(v: VibSpec, ctl: { wheel: number; pressure: number
  * The layer patterns the native engine only roughly follows right now: drive always; the LP M
  * filter type; Sync and Shape Sine waves (a static cycle per osc ctrl value); and osc ctrl when
  * such a wave is swept by the osc envelope or the LFO, which the static cycle cannot follow.
+ * With the AudioWorklet engine running (`worklet`, plan 15.7) the oscillators, the ladder and the
+ * drive are rendered per sample, so nothing is coarse.
  */
-export function coarsePatterns(values: ValueReader, layer: SynthLayer): Set<string> {
+export function coarsePatterns(values: ValueReader, layer: SynthLayer, worklet = false): Set<string> {
+  if (worklet) return new Set();
   const out = new Set<string>(['synth{L}Sound.fltDrive']);
   if (values.get(key(layer, 'synth{L}Sound.fltType')) === 2) out.add('synth{L}Sound.fltType');
   const spec = oscSpec(values, layer);

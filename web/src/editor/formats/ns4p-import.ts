@@ -44,12 +44,12 @@ function version(v: number): string {
 const FX_UNITS: ReadonlyArray<readonly [string, string]> = [['fx1Enable', 'effect 1'], ['fx2Enable', 'effect 2'],
   ['ampEnable', 'amp'], ['cmpEnable', 'compressor'], ['dlyEnable', 'delay'], ['rvbEnable', 'reverb']];
 const FX_BLOCKS: ReadonlyArray<readonly [string, string]> = [['organFx', 'organ'], ['pianoAFx', 'piano layer a'],
-  ['pianoBFx', 'piano layer b']];
+  ['pianoBFx', 'piano layer b'], ['synthAFx', 'synth layer a'], ['synthBFx', 'synth layer b'], ['synthCFx', 'synth layer c']];
 
 /**
  * What the editor approximates or leaves out of the file, for the active layer scene: organ and
- * piano as approximations, synth layer modes it does not play, extern, arp, organ and piano layer
- * effects, morphs, split.
+ * piano as approximations, synth layer modes it does not play, extern, arp, layer effects (every
+ * block, approximated), morphs, split.
  */
 function describe(values: Readonly<Record<Ns4Key, number>>): string[] {
   const notes: string[] = [];
@@ -64,16 +64,22 @@ function describe(values: Readonly<Record<Ns4Key, number>>): string[] {
   }
   for (const [block, name] of FX_BLOCKS) {
     const on = FX_UNITS.filter(([field]) => values[`${block}.${field}` as Ns4Key] === 1).map(([, unit]) => unit);
-    if (on.length > 0) notes.push(`${name} has layer effects on (${on.join(', ')}): not implemented, they do not sound`);
+    if (on.length > 0) notes.push(`${name} has layer effects on (${on.join(', ')}): they play as approximations (no Nord effects)`);
   }
   if (sectionOn(reader, 'synth')) {
     for (const layer of enabledLayers(reader, 'synth')) {
       const l = layer.toLowerCase();
-      if (values[`synth${layer}.mode`] === 0) notes.push(`synth layer ${l} uses samples mode: not implemented, the layer is silent`);
+      if (values[`synth${layer}.mode`] === 0) {
+        notes.push(`synth layer ${l} uses samples mode: nord samples are not available; it stays silent until you assign `
+          + 'an own sample');
+      }
       else if (values[`synth${layer}Sound.oscBank`] === 3) {
         notes.push(`synth layer ${l} uses the wave oscillator type: not implemented, the layer is silent`);
       }
-      if (values[`synth${layer}.externEnable`] === 1) notes.push(`synth layer ${l} has extern on: not implemented`);
+      if (values[`synth${layer}.externEnable`] === 1) {
+        notes.push(`synth layer ${l} has extern on: it makes no sound here and plays its extern midi channel once you `
+          + 'switch extern out on');
+      }
       if (values[`synth${layer}.arpRun`] === 1) {
         notes.push(`synth layer ${l} has the arpeggiator on: it plays; rate, range and divisions are approximated `
           + 'and the pattern content is not decoded (every step plays)');
@@ -84,7 +90,8 @@ function describe(values: Readonly<Record<Ns4Key, number>>): string[] {
   }
   const morphs = NS4_KEYS.filter((k) => MORPH.test(k) && values[k] !== 0).length;
   if (morphs > 0) {
-    notes.push(`${morphs} morph ${morphs === 1 ? 'amount is' : 'amounts are'} set: kept and shown, not played`);
+    notes.push(`${morphs} morph ${morphs === 1 ? 'amount is' : 'amounts are'} set: they play with the wheel, aftertouch `
+      + 'and control pedal (scaling assumed)');
   }
   if (values['common.splitEnabled'] === 1) {
     notes.push('split is on: zones and crossfades play as approximated (the split note is assumed to belong to the upper zone)');

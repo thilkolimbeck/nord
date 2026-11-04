@@ -15,9 +15,13 @@ import { crc32 } from '../../ns4/cbin.ts';
 import { NordFormatError } from '../../ns4/errors.ts';
 import { Ns4Program } from '../../ns4/program.ts';
 import { DESCRIPTORS } from '../model/descriptors.ts';
-import { NS4_KEYS, type Ns4Key } from '../model/keys.ts';
+import { LAYERS, NS4_KEYS, type Ns4Key } from '../model/keys.ts';
 import type { ProgramSnapshot, SourceProgram } from '../model/store.ts';
+import {
+  HASH_RE, layerSamplesJson, type LayerSamples, parseLayerSamples, type SampleHash, type UserSampleRef,
+} from '../model/user-samples.ts';
 import { decodeBase64Strict, encodeBase64 } from './base64.ts';
+import { contentHashSync, type EmbeddedSample, MAX_PRESET_WITH_SAMPLES_BYTES, MAX_SAMPLE_BYTES } from './samples-db.ts';
 
 export const PRESET_FORMAT = 'nord-stage4-editor-preset';
 export const PRESET_SCHEMA = 1;
@@ -148,8 +152,9 @@ function readSource(raw: unknown): SourceProgram | null {
  * notes; throws PresetError with the messages of plan section 5.1.
  */
 export function readPreset(text: string): { snapshot: ProgramSnapshot; notes: string[] } {
-  if (text.length > MAX_PRESET_BYTES) {
-    throw new PresetError('not a preset file', `not a preset file: larger than ${MAX_PRESET_BYTES / 1024 / 1024} MB`);
+  const limit = presetSizeLimit(text);
+  if (text.length > limit) {
+    throw new PresetError('not a preset file', `not a preset file: larger than ${limit / 1024 / 1024} MB`);
   }
   let parsed: unknown;
   try {
@@ -212,4 +217,161 @@ export function readPreset(text: string): { snapshot: ProgramSnapshot; notes: st
 /** readPreset without the notes. */
 export function parsePreset(text: string): ProgramSnapshot {
   return readPreset(text).snapshot;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Own samples in app presets (plan section 15.3): optional top-level members `userSamples` (the
+// layers' sample references) and `embeddedSamples` (file bytes, only in a download the user asked
+// to embed). Schema 1 stays: readers before section 15 ignore unknown top-level members.
+
+/** What an app preset carries besides the program. */
+export interface PresetExtras {
+  readonly samples: LayerSamples;
+  /** Files to embed, by hash; empty for browser slots and plain downloads. */
+  readonly embedded: ReadonlyMap<SampleHash, EmbeddedSample>;
+}
+
+export const NO_EXTRAS: PresetExtras = { samples: {}, embedded: new Map() };
+
+/** The size limit for a preset text: 1 MB, or 48 MB when it embeds own samples (plan 15.3). */
+export function presetSizeLimit(text: string): number {
+  return text.includes('"embeddedSamples"') ? MAX_PRESET_WITH_SAMPLES_BYTES : MAX_PRESET_BYTES;
+}
+
+/**
+ * The preset JSON with its extras: `userSamples` whenever a layer has an own sample (browser slots
+ * and the working copy too), `embeddedSamples` only for the files given, and only those an
+ * assignment uses (no unrelated sample leaves the device by accident). Keys sorted: deterministic.
+ */
+export function toPresetJsonWith(s: ProgramSnapshot, appVersion: string, extras: PresetExtras, indent = 2): string {
+  const doc: Record<string, unknown> = { ...toPresetDocument(s, appVersion) };
+  const samples = layerSamplesJson(extras.samples);
+  if (samples !== null) doc['userSamples'] = samples;
+  const used = new Set(Object.values(samples ?? {}).map((r) => r.hash));
+  const embedded: Record<string, EmbeddedSample> = {};
+  for (const hash of [...extras.embedded.keys()].sort()) {
+    const e = extras.embedded.get(hash)!;
+    if (used.has(hash)) embedded[hash] = { name: e.name, mime: e.mime, bytesBase64: e.bytesBase64 };
+  }
+  if (Object.keys(embedded).length > 0) doc['embeddedSamples'] = embedded;
+  const text = JSON.stringify(doc, null, indent);
+  return indent > 0 ? `${text}\n` : text;
+}
+
+/** One embedded file for a download: its bytes as base64. */
+export function embeddedSample(name: string, mime: string, bytes: ArrayBuffer | Uint8Array): EmbeddedSample {
+  return { name, mime, bytesBase64: encodeBase64(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)) };
+}
+
+/** The file bytes of an embedded sample (readPresetExtras has checked them against their hash). */
+export function embeddedBytes(e: EmbeddedSample): Uint8Array {
+  return decodeBase64Strict(e.bytesBase64);
+}
+
+function parseEmbedded(v: unknown): { embedded: Map<SampleHash, EmbeddedSample>; notes: string[] } {
+  const embedded = new Map<SampleHash, EmbeddedSample>();
+  const notes: string[] = [];
+  if (v === undefined || v === null) return { embedded, notes };
+  if (!isRecord(v)) return { embedded, notes: ['embedded samples: not an object, ignored'] };
+  for (const [hash, raw] of Object.entries(v)) {
+    const label = isRecord(raw) && typeof raw['name'] === 'string' ? `"${raw['name']}"` : hash.slice(0, 15);
+    const drop = (why: string): void => {
+      notes.push(`embedded sample ${label}: ${why}, ignored`);
+    };
+    if (!HASH_RE.test(hash)) {
+      drop('hash invalid');
+      continue;
+    }
+    if (!isRecord(raw)) {
+      drop('not an object');
+      continue;
+    }
+    const { name, mime, bytesBase64 } = raw;
+    if (typeof name !== 'string' || typeof mime !== 'string' || typeof bytesBase64 !== 'string') {
+      drop('name, type or bytes missing');
+      continue;
+    }
+    // Base64 is 4 characters per 3 bytes: refuse an oversized file before decoding it.
+    if (bytesBase64.length > Math.ceil(MAX_SAMPLE_BYTES / 3) * 4) {
+      drop(`larger than ${MAX_SAMPLE_BYTES / 1024 / 1024} MB`);
+      continue;
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = decodeBase64Strict(bytesBase64);
+    } catch {
+      drop('bytes are not base64');
+      continue;
+    }
+    if (contentHashSync(bytes) !== hash) {
+      drop('the bytes do not match their hash');
+      continue;
+    }
+    embedded.set(hash, { name, mime, bytesBase64 });
+  }
+  return { embedded, notes };
+}
+
+/**
+ * The extras of a preset text (call after readPreset accepted it), with notes for bad entries:
+ * a bad reference or embedded file is dropped, the program still loads. Every embedded file is
+ * checked against its hash.
+ */
+export function readPresetExtras(text: string): PresetExtras & { readonly notes: readonly string[] } {
+  let parsed: unknown;
+  try {
+    parsed = text.length > presetSizeLimit(text) ? null : JSON.parse(text);
+  } catch {
+    parsed = null;
+  }
+  if (!isRecord(parsed)) return { ...NO_EXTRAS, notes: [] };
+  const { samples, notes } = parseLayerSamples(parsed['userSamples']);
+  const embedded = parseEmbedded(parsed['embeddedSamples']);
+  return { samples, embedded: embedded.embedded, notes: [...notes, ...embedded.notes] };
+}
+
+/** The note for a layer whose own sample is not on this device (plan 15.3). */
+export function missingSampleNote(layer: string, ref: Pick<UserSampleRef, 'name'>): string {
+  return `layer ${layer.toLowerCase()}: own sample "${ref.name}" is not on this device: import the file again `
+    + 'or load the preset that embeds it';
+}
+
+/** The notes for every assigned layer whose sample `have` does not know, in layer order. */
+export function missingSampleNotes(samples: LayerSamples, have: (hash: SampleHash) => boolean): string[] {
+  const notes: string[] = [];
+  for (const layer of LAYERS) {
+    const ref = samples[layer];
+    if (ref !== undefined && !have(ref.hash)) notes.push(missingSampleNote(layer, ref));
+  }
+  return notes;
+}
+
+/** The print-out line after a load stored embedded files: "2 own samples stored on this device". */
+export function storedSamplesNote(count: number): string {
+  return `${count} own sample${count === 1 ? '' : 's'} stored on this device`;
+}
+
+/**
+ * The files to embed in a download: every assigned sample the store has, plus notes for those it
+ * has not (the download then carries the reference only). `get` is SampleStore.get.
+ */
+export async function collectEmbedded(samples: LayerSamples,
+  get: (hash: SampleHash) => Promise<{ readonly meta: { readonly name: string; readonly mime: string };
+    readonly bytes: ArrayBuffer } | null>): Promise<{ embedded: Map<SampleHash, EmbeddedSample>; notes: string[] }> {
+  const embedded = new Map<SampleHash, EmbeddedSample>();
+  const notes: string[] = [];
+  for (const layer of LAYERS) {
+    const ref = samples[layer];
+    if (ref === undefined || embedded.has(ref.hash)) continue;
+    let found: Awaited<ReturnType<typeof get>>;
+    try {
+      found = await get(ref.hash);
+    } catch (err) {
+      notes.push(`layer ${layer.toLowerCase()}: own sample "${ref.name}" not embedded: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
+    if (found === null) notes.push(missingSampleNote(layer, ref));
+    else embedded.set(ref.hash, embeddedSample(found.meta.name, found.meta.mime, found.bytes));
+  }
+  return { embedded, notes };
 }

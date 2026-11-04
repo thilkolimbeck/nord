@@ -30,6 +30,7 @@ Every colour is a CSS custom property in the token block of `web/src/editor/edit
 | focus ring | `#b04000` | `#ff6a1a` |
 | key (button), 1px border; hover border | `#ffffff`, `#c9c9c2`; `#8f8f88` | `#262626`, `#333333`; `#555555` |
 | segment off (LED off, fader track) | `#dcdcd5` | `#2d2d2d` |
+| on accent (label on a lit lamp key) | `#141414` | `#141414` |
 | fader thumb | `#141414` | `#e9e9e4` |
 | keyboard white keys | `#ffffff`, 1px `#c9c9c2` | `#e9e9e4` |
 | keyboard black keys | `#262626` | `#262626`, 1px `#333333` |
@@ -48,6 +49,9 @@ The accent `#ff6a1a` reaches only 2.5:1 on the light panel, so in light every ac
 
 - No network requests after load except same-origin static assets; no analytics.
 - Keyboard: every control is reachable and works with the keyboard; keys are real `<button>`s (Enter/Space) with a focus-visible ring 2px accent, offset 2px; disabled keys stay dark at reduced opacity of their label only.
+- Switches (2026-11-04, Thilko's pick of three): every key with a pressed state is a lamp key, a flat unlit key in segment off with no border and no LED that lights up as a whole in accent with on-accent text when on. Action keys (files, oct, tap, panic, start audio) keep the white key, so the look tells a switch from an action. In forced-colors mode the lamp key gets a ButtonText border and a Highlight fill when on.
+- Values never move the layout (2026-11-04): every control reserves its longest possible value text and markers (`--value-ch`, `--marks-ch`), value cells never wrap, and the rows of a group share columns through subgrid. The display shows "off" for a layer level of "volume off" and "N semi" for "N semitones"; screen readers get the full label.
+- Keyboard region: the white keys and the controller faders are both 96px and start and end on the same lines; the controller values sit above and the captions below, on one line each.
 - Motion: none beyond 150 ms colour transitions; respect `prefers-reduced-motion` (transitions drop to 0).
 
 ## Editor (/nord)

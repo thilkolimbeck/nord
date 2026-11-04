@@ -4,8 +4,10 @@ A browser editor and synth for Nord Stage 4 programs:
 https://www.thilkolimbeck.com/nord
 
 It edits all 955 fields of a Stage 4 program (`.ns4p`) and plays the organ,
-piano and synth sections through Web Audio, entirely in the browser: files are
-never uploaded, and the page makes no requests beyond its own static files.
+piano and synth sections with their layer effects and morphs through Web
+Audio, entirely in the browser: files are never uploaded, and the page makes
+no requests beyond its own static files. MIDI goes out only after you switch
+it on, never as SysEx.
 The sound is an approximation, not a Stage 4: no Nord samples and no
 recordings of the instrument were used. The `.ns4p` export is experimental and
 untested on hardware.
@@ -33,10 +35,19 @@ newer.
 - Every control works with the keyboard and shows its value, unit and range.
   "nv" marks a value that is not verified (no Stage 4 display table, or a
   guessed curve), "coarse" one the browser engine only approximates, "≈" an
-  organ or piano control whose sound is an approximation. A control that is
-  stored and exported but not played carries a line that says why: "stored
-  setting, no sound", "pedal assignment, stored" or "samples mode only · not
-  implemented (no nord samples)".
+  organ, piano or effects control whose sound is an approximation. A control
+  that is stored and exported but not played carries a line that says why:
+  "stored setting, no sound" (aux keyboard, output buses, rotary angles …),
+  "pedal assignment, stored" or "stored setting, not sent" (the extern swell
+  and volume pedals).
+- Morphs: a control with morph amounts has a small `m` key after its label;
+  its LED lights while an amount is set. Open, it shows the wheel, a.t. and
+  ctrl ped amounts as signed faders with the value each source reaches
+  ("→ 4.8 kHz"); the display shows start → end while you move one. Amounts
+  are read as signed deltas in stored steps (assumed, nv).
+- Controller strip, left of the keys: wheel, a.t. (springs back when let go)
+  and ctrl ped, for morphs and the vibrato modes; on phones the `ctrl` key in
+  the keyboard region shows the strip in place of the keys.
 - Master clock: the `tap` key next to the tempo sets it from four taps or more
   (mouse, touch or keyboard).
 - Virtual keyboard: mouse, touch and pen, several notes at once; velocity
@@ -46,11 +57,20 @@ newer.
   shift an octave down and up, Esc stops every note (panic). Keys play while
   focus is not in a text field or a select, and not with Cmd, Ctrl or Alt.
   Velocity is fixed.
-- MIDI input only, every channel: notes with velocity, sustain (CC64), pitch
-  bend, and mod wheel, aftertouch and CC11 for the vibrato modes that use
-  them; CC120 and CC123 stop every note. The editor never sends MIDI or SysEx.
-  `enable midi` asks for the browser's permission. Chrome, Edge and Firefox
-  support Web MIDI; Safari does not, and the status line says so.
+- MIDI input, every channel: notes with velocity, sustain (CC64), pitch bend,
+  and mod wheel, aftertouch and CC11 for the vibrato modes and morphs; CC120
+  and CC123 stop every note. `enable midi` asks for the browser's permission
+  (never SysEx). Chrome, Edge and Firefox support Web MIDI; Safari does not,
+  and the status line and the extern · midi region say so.
+- extern · midi region: `control in` lets incoming CC and NRPN of the
+  manual's Appendix II move the controls (scaling assumed, nv; a layer
+  controller addresses the focused layer). MIDI out needs an output port and
+  one of `send to stage 4` (your edits as the documented CC or NRPN, after
+  the focus controller; `send all` sends every documented controller of the
+  program), `send notes` (on-screen and computer keyboards and the controller
+  strip) and `extern out` (extern synth layers play their channel). These
+  switches are off at every page load; the port and channels are kept on
+  this device. The Stage 4 needs CTRL receive and CC & NRPN in its MIDI menu.
 - Audio starts with the first click or key press, as browsers require; a
   blocked audio context shows in the status line. Switching tabs or leaving
   the window releases every note.
@@ -82,14 +102,30 @@ All of it as approximations:
   KB sync, pattern step count), KB hold with per-layer exclude, the filter,
   LFO and arpeggiator groups.
 - Master clock: tempo, keyboard sync (off, on, soft) and tap tempo; the
-  arpeggiators and synth LFOs with Mst Clk follow it.
+  arpeggiators, synth LFOs and layer effects with Mst Clk follow it.
+- Layer effects of every organ, piano and synth layer: Mod 1 (A-Pan, Trem,
+  RM, A-Wah, Wah, Pump), Mod 2 (Phaser, Flanger, Chorus, Vibe, Ensemble,
+  Spin), delay (ping pong, loop filter and effect, analog mode, Mst Clk),
+  amp and EQ (Twin, JC, Small, LP and HP filter, To Rotary, drive, three
+  bands), compressor and reverb (generated impulse responses, no Nord ones),
+  with group and Global modes and Layer Effects on. The effects focus follows
+  the layer keys.
+- Morphs of every morphable field (levels, drawbars, rotary speed, synth,
+  extern CC values and effects) from the controller strip or MIDI.
+- Samples mode with your own audio: `files › samples` imports audio files
+  (whatever the browser decodes: wav, aiff, mp3, ogg, flac), kept only in
+  this browser (IndexedDB) and never uploaded; a layer in samples mode picks
+  one with its root note and loop in the oscillator group, and sample dyn and
+  bright act on it. App presets refer to own samples by content hash and
+  embed the files only with `embed own samples` on.
+- Extern synth layers play their MIDI channel (notes in their zones,
+  program change, bank select, CC values, volume) while `extern out` is on.
 
-Not implemented, shown and stored but silent: the layer effects of every
-section, Nord samples and the Wave oscillator type (proprietary), extern,
-morph editing (non-zero morphs show as a dot on their control), and a few
-stored settings (pedal assignments, the organ's preset switch and rotary
-angles, the piano slot). Preset Library references, the aux keyboard and
-output routing are read-only.
+Not playing, shown and stored: Nord samples, the Wave oscillator type and
+the real pianos (Nord content), the arpeggiator patterns' content, the
+arpeggiator driving an extern layer, and stored settings (aux keyboard and
+output buses, pedal assignments, the organ's preset switch and rotary angles,
+the piano slot). Preset Library references are read-only.
 
 ## Files
 
@@ -99,7 +135,11 @@ In the files box:
   state as versioned JSON, lossless through save, load, download and
   re-import. It is for this editor only; the Stage 4 and Nord Sound Manager
   cannot open it. `save` keeps it in this browser; a working copy is also
-  autosaved there.
+  autosaved there. Each saved preset in the `load` list has a `delete` key
+  that asks first. A download carries the layers' own sample references, and
+  the sample files too with `embed own samples` on.
+- **samples**: the own samples kept in this browser, with `import audio`, a
+  `delete` key per sample (asks first) and the storage they use.
 - **open .ns4p**: reads a Stage 4 program (format 3.07–3.13) with the strict
   reader in `web/src/ns4/`; all 955 fields fill the editor, and the print-out
   lists what the editor does not play.
@@ -118,7 +158,13 @@ In the files box:
 ## Limits
 
 - The sound is an approximation of the Stage 4, not its engine. No Nord
-  samples, no Wave oscillators, no layer effects (see What plays).
+  samples, no Wave oscillators, no real pianos (see What plays). The layer
+  effects, morph scaling, MIDI CC scaling and extern encodings are
+  assumptions (nv); nothing of it is tested on a Stage 4.
+- The AudioWorklet engine (band-limited Sync, Shape, Shape Sine, Multi and
+  Super, the LP M ladder and drive) loads at audio start; until then, and in
+  browsers without AudioWorklet, the native voice plays and marks those
+  controls coarse.
 - About a fifth of a Stage 4 file is not decoded, so the export keeps the
   donor's undecoded bits, which may depend on values you changed.
 - The export is experimental and untested on hardware.

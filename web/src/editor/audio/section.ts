@@ -13,10 +13,11 @@
  * only plays what it is handed: its layer's own sound, octave shift, pitch stick, sustain switch
  * and level. Types and constants only: no Web Audio, no DOM.
  */
-import type { PlayEvent } from '../input/events.ts';
+import type { NoteSource, PlayEvent } from '../input/events.ts';
 import type { ValueReader } from '../model/labels.ts';
 import type { LayerOf, SectionId } from '../model/scene.ts';
 import type { Change } from '../model/store.ts';
+import type { FxHooks } from './fx/types.ts';
 
 export type { LayerOf, OrganLayer, PianoLayer, SectionId } from '../model/scene.ts';
 
@@ -49,6 +50,12 @@ export interface RoutedNoteOn<L extends string = string> {
   readonly velocity: number;
   /** Non-empty; each layer at most once, in layer order. */
   readonly layers: readonly LayerHit<L>[];
+  /**
+   * Where the key came from (plan section 15.5): the extern MIDI output does not echo notes that
+   * arrived over MIDI unless the user asks for it. Engines ignore it. Absent from callers that
+   * build events by hand (tests).
+   */
+  readonly source?: NoteSource;
 }
 
 /** The key comes up: release every voice of `note` in this section, whatever layers it started on. */
@@ -71,8 +78,13 @@ export interface SectionContext {
   readonly ctx: BaseAudioContext;
   /** The program values (the store); engines read them, never write. */
   readonly values: ValueReader;
-  /** Where the section's stereo output goes: the shared master input. */
+  /** Where the section's stereo output goes: the global effects' input (in front of the shared master). */
   readonly out: AudioNode;
+  /**
+   * The layer effects (plan section 15.1, audio/fx/types.ts): each engine builds one chain per
+   * block through fxChainFor(); without hooks every chain passes the signal through unchanged.
+   */
+  readonly fx?: FxHooks;
 }
 
 /** One section's sound generator. OrganEngine, PianoEngine and SynthEngine implement it. */

@@ -104,7 +104,7 @@ test('sound-affecting organ and piano controls carry the approximation marker', 
   assert.deepEqual(valueView(eq, 2, s).suffixes, ['nv', '≈']);
   assert.ok(/approximation: synthesized in the browser, no Nord samples/.test(descriptionText(eq, 2, s)));
   assert.equal(displayParamLine(model, 1, s), 'organ a · model · VOX ≈ · B3–B3 BASS');
-  assert.equal(displayParamLine(descriptorOf('piano.layerLevelPnoB'), 127, s), 'piano b · level · 0.0 dB · volume off–0.0 dB');
+  assert.equal(displayParamLine(descriptorOf('piano.layerLevelPnoB'), 127, s), 'piano b · level · 0.0 dB · off–0.0 dB');
   assert.equal(displayParamLine(descriptorOf('organ.layerEnableOrg_II'), 3, s), 'organ · layers on · scene ii · A+B · none–A+B');
   assert.equal(displayStateLine(model, 1, s, 1), 'approximation · edited 1');
 });
@@ -321,7 +321,7 @@ test('the piano variation shows only for a clav layer; the model select names wh
 
 test('morph readout text', () => {
   assert.equal(morphCountText(0), 'none set');
-  assert.equal(morphCountText(3), '3 set, shown as dots on the controls, not played');
+  assert.equal(morphCountText(3), "3 set: each control's m key shows and edits them; they play (scaling nv)");
 });
 
 test('the program region shows every program field: controls, or read-only values', () => {

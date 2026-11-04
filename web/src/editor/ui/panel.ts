@@ -1,21 +1,20 @@
 /**
  * The instrument panel (docs/web-design.md, "Editor" and "Editor: program, organ and piano
  * regions"): legend row with the status strip mount, row 1 display and files box, row 2 program
- * (full width), row 3 organ and piano, row 4 synth, row 5 extern and layer effects, row 6
- * keyboard (with the octave keys in its head), then the print-out and the colophon line at the
- * foot. On narrow screens (< 760px) the regions stack in one column in another order (display and
- * files, synth, organ, piano, program, extern, layer effects, keyboard); the DOM is reordered, not
- * only the boxes, so the tab order follows what is on screen. The layout-only regions (extern,
- * layer effects) are drawn here as read-only readouts behind a "show values" button, marked "not
- * implemented". The live regions are mount points: mountRegions fills program, organ and piano;
- * other modules fill the display, synth, status, files, keyboard, print-out and colophon.
+ * (full width), row 3 organ and piano, row 4 synth, row 5 extern · midi and layer effects, row 6
+ * keyboard (with the octave keys in its head and the controller strip left of the keys), then the
+ * print-out and the colophon line at the foot. On narrow screens (< 760px) the regions stack in
+ * one column in another order (display and files, synth, organ, piano, program, extern · midi,
+ * layer effects, keyboard); the DOM is reordered, not only the boxes, so the tab order follows
+ * what is on screen. Every region is a mount point: mountRegions fills program, organ, piano and
+ * the layer effects (plan 15.9); other modules fill the display, synth, extern · midi, status,
+ * files, keyboard and controller strip, print-out and colophon. On narrow screens the keyboard
+ * region's `ctrl` key shows the controller strip in place of the keys.
  */
-import { descriptorOf } from '../model/descriptors.ts';
-import { LAYER_TOKEN, LAYERS, type Ns4Key } from '../model/keys.ts';
-import { type Group, keysOf, PANEL, type Region, type RegionId } from '../model/sections.ts';
 import type { ParamStore } from '../model/store.ts';
-import { type Bound, type OnTouch, readout } from './controls.ts';
+import type { Bound, OnTouch } from './controls.ts';
 import { h, listen, uid } from './dom.ts';
+import { mountFxPanel } from './fx-panel.ts';
 import { mountOrganPanel } from './organ-panel.ts';
 import { mountPianoPanel } from './piano-panel.ts';
 import { mountProgramPanel } from './program-panel.ts';
@@ -36,13 +35,18 @@ export interface PanelApi {
   /** The octave keys in the keyboard region's head (down, up). */
   readonly octaveDown: HTMLButtonElement;
   readonly octaveUp: HTMLButtonElement;
+  /** Left of the keys: the controller strip (wheel, a.t., ctrl ped). */
+  readonly controllers: HTMLElement;
+  /** The extern · midi region (ui/midi-panel.ts). */
+  readonly extern: HTMLElement;
   /** The print-out at the foot of the panel. */
   readonly printout: HTMLElement;
   /** The colophon line under the print-out. */
   readonly colophon: HTMLElement;
   /**
-   * Mount the live controls of the program, organ (with rotary) and piano regions (plan section
-   * 13.6); main.ts calls it once, after the synth panel. A second call replaces the first.
+   * Mount the live controls of the program, organ (with rotary), piano and layer effects regions
+   * (plan sections 13.6 and 15.9); main.ts calls it once, after the synth panel. A second call
+   * replaces the first.
    */
   mountRegions(onTouch: OnTouch): RegionsApi;
   dispose(): void;
@@ -58,66 +62,6 @@ const APPROXIMATION = 'st-4 editor · sound programming · audio is an approxima
 /** Below this width the regions stack in one column (the CSS uses the same breakpoint). */
 const NARROW = '(max-width: 759px)';
 
-function region(id: RegionId): Region {
-  return PANEL.find((r) => r.id === id)!;
-}
-
-/** A group's readout sections: one per layer for layer patterns (extern, synth fx), else one. */
-function sections(group: Group): ReadonlyArray<{ title: string; keys: Ns4Key[] }> {
-  if (!group.keys.some((k) => k.includes(LAYER_TOKEN))) return [{ title: group.title, keys: keysOf(group, null) }];
-  return LAYERS.map((l) => ({ title: `${group.title} · ${l.toLowerCase()}`, keys: keysOf(group, l) }));
-}
-
-/** A layout-only region box: legend, "not implemented" badge, first value, the rest behind "show values". */
-function layoutRegion(title: string, regions: readonly Region[], store: ParamStore): { el: HTMLElement; dispose(): void } {
-  const groups = regions.flatMap((r) => r.groups.flatMap(sections));
-  const keys = groups.flatMap((g) => g.keys);
-  const watched = new Set<Ns4Key>(keys.flatMap((k) => [k, ...descriptorOf(k).deps]));
-  const legendId = uid(`region-${title}`);
-  const bodyId = uid(`region-${title}-values`);
-
-  const first = readout(keys[0]!, store);
-  const body = h('div', { class: 'readouts', id: bodyId, hidden: true });
-  const toggle = h('button', { class: 'text-button show-values', type: 'button', 'aria-expanded': 'false',
-    'aria-controls': bodyId }, 'show values');
-  let rendered: { refresh(): void }[] = [];
-
-  const expand = (open: boolean): void => {
-    toggle.setAttribute('aria-expanded', String(open));
-    toggle.textContent = open ? 'hide values' : 'show values';
-    body.hidden = !open;
-    if (open && rendered.length === 0) {
-      for (const g of groups) {
-        const lines = g.keys.map((k) => readout(k, store));
-        rendered.push(...lines);
-        body.append(h('div', { class: 'readout-group' }, h('p', { class: 'readout-group-legend' }, g.title),
-          ...lines.map((l) => l.el)));
-      }
-    }
-  };
-
-  const el = h('section', { class: 'region region-layout', 'aria-labelledby': legendId },
-    h('p', { class: 'region-head' },
-      h('span', { class: 'region-legend', id: legendId }, title), h('span', { class: 'badge' }, 'not implemented')),
-    h('div', { class: 'region-first' }, first.el), toggle, body);
-
-  const offs = [
-    listen(toggle, 'click', () => expand(toggle.getAttribute('aria-expanded') !== 'true')),
-    store.onChange((batch) => {
-      if (!batch.some((c) => watched.has(c.key))) return;
-      first.refresh();
-      for (const r of rendered) r.refresh();
-    }),
-  ];
-  return {
-    el,
-    dispose(): void {
-      for (const off of offs) off();
-      rendered = [];
-    },
-  };
-}
-
 export function mountPanel(root: HTMLElement, store: ParamStore): PanelApi {
   const status = h('div', { class: 'status-strip', id: 'status-strip' });
   const display = h('div', { class: 'display-host' });
@@ -132,18 +76,22 @@ export function mountPanel(root: HTMLElement, store: ParamStore): PanelApi {
     'aria-label': 'piano' });
   const keyboardLegend = h('p', { class: 'region-legend', id: 'keyboard-legend' }, 'keyboard');
   const keyboard = h('div', { class: 'keyboard-slot' });
+  const controllers = h('div', { class: 'controllers-slot', id: uid('controllers') });
   const octaveKey = (label: string, name: string): HTMLButtonElement =>
     h('button', { class: 'bool-key octave-key', type: 'button', 'aria-label': name }, h('span', { 'aria-hidden': 'true' }, label));
   const octaveDown = octaveKey('oct −', 'octave down');
   const octaveUp = octaveKey('oct +', 'octave up');
+  // Narrow screens: the strip shows in place of the keys while `ctrl` is pressed (CSS hides the key on wide screens).
+  const ctrlKey = h('button', { class: 'bool-key octave-key ctrl-key', type: 'button', 'aria-pressed': 'false',
+    'aria-controls': controllers.id, 'aria-label': 'show the controller strip (wheel, aftertouch, control pedal) in place of the keys' },
+  h('span', { class: 'led', 'aria-hidden': 'true' }), h('span', { 'aria-hidden': 'true' }, 'ctrl'));
   const printout = h('div', { class: 'printout-host' });
   const colophon = h('footer', { class: 'panel-foot' });
 
-  const layouts = [
-    layoutRegion('extern', [region('extern')], store),
-    layoutRegion('layer effects', [region('effects')], store),
-  ];
-  const [extern, effects] = layouts.map((l) => l.el);
+  const extern = h('section', { class: 'region region-live region-extern', id: 'extern', tabindex: -1,
+    'aria-label': 'extern and midi' });
+  const effects = h('section', { class: 'region region-live region-effects', id: 'effects', tabindex: -1,
+    'aria-label': 'layer effects' });
 
   const legendRow = h('div', { class: 'panel-legend' }, h('span', null, APPROXIMATION), status);
   const displayRow = h('div', { class: 'panel-row row-display' }, display,
@@ -153,8 +101,14 @@ export function mountPanel(root: HTMLElement, store: ParamStore): PanelApi {
   const halvesBottom = h('div', { class: 'panel-row row-halves' });
   const keyboardRegion = h('section', { class: 'region region-keyboard', id: 'keyboard', tabindex: -1,
     'aria-labelledby': keyboardLegend.id },
-  h('div', { class: 'region-head kb-head' }, keyboardLegend, h('div', { class: 'octave-keys' }, octaveDown, octaveUp)),
-  keyboard);
+  h('div', { class: 'region-head kb-head' }, keyboardLegend, h('div', { class: 'octave-keys' }, ctrlKey, octaveDown, octaveUp)),
+  h('div', { class: 'kb-body' }, controllers, keyboard));
+  const offCtrl = listen(ctrlKey, 'click', () => {
+    const on = ctrlKey.getAttribute('aria-pressed') !== 'true';
+    ctrlKey.setAttribute('aria-pressed', String(on));
+    ctrlKey.classList.toggle('lit', on);
+    keyboardRegion.classList.toggle('show-controllers', on);
+  });
   const panel = h('section', { class: 'panel', 'aria-label': 'editor panel' });
   root.replaceChildren(panel);
 
@@ -162,11 +116,11 @@ export function mountPanel(root: HTMLElement, store: ParamStore): PanelApi {
   const arrange = (narrow: boolean): void => {
     const focused = document.activeElement;
     if (narrow) {
-      panel.replaceChildren(legendRow, displayRow, synth, organ, piano, program, extern!, effects!, keyboardRegion,
+      panel.replaceChildren(legendRow, displayRow, synth, organ, piano, program, extern, effects, keyboardRegion,
         printout, colophon);
     } else {
       halvesTop.replaceChildren(organ, piano);
-      halvesBottom.replaceChildren(extern!, effects!);
+      halvesBottom.replaceChildren(extern, effects);
       panel.replaceChildren(legendRow, displayRow, program, halvesTop, synth, halvesBottom, keyboardRegion,
         printout, colophon);
     }
@@ -187,6 +141,7 @@ export function mountPanel(root: HTMLElement, store: ParamStore): PanelApi {
       mountProgramPanel(program, store, onTouch),
       mountOrganPanel(organ, store, onTouch),
       mountPianoPanel(piano, store, onTouch),
+      mountFxPanel(effects, store, onTouch),
     ];
     const api: RegionsApi = {
       controls: parts.flatMap((p) => p.controls),
@@ -200,11 +155,12 @@ export function mountPanel(root: HTMLElement, store: ParamStore): PanelApi {
   };
 
   return {
-    status, display, files, synth, keyboardLegend, keyboard, octaveDown, octaveUp, printout, colophon, mountRegions,
+    status, display, files, synth, keyboardLegend, keyboard, octaveDown, octaveUp, controllers, extern, printout, colophon,
+    mountRegions,
     dispose(): void {
       media?.removeEventListener('change', onMedia);
+      offCtrl();
       regions?.dispose();
-      for (const l of layouts) l.dispose();
       root.replaceChildren();
     },
   };

@@ -32,7 +32,8 @@ export function mountOrganPanel(root: HTMLElement, store: ParamStore, onTouch: O
 
   const bars: DrawbarBound[] = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => kit.add(drawbar(
     descriptorOf(boundKey('organ', `organADrawbars.org_Preset_kDb${n}` as Ns4Key, store)), store, onTouch)));
-  const drawbars = group('drawbars', 'drawbars', h('div', { class: 'drawbars' }, ...bars.map((b) => b.el)));
+  const drawbars = group('drawbars', 'drawbars', h('div', { class: 'drawbars' }, ...bars.map((b) => b.el)),
+    h('div', { class: 'drawbar-morphs' }, ...bars.map((b) => b.morphPanel)));
 
   const vibTypes = VIBRATO_TYPE_KEYS.map((k) => kit.make(k));
   const perc = group('organ-vibrato', 'perc · vibrato',
@@ -57,7 +58,13 @@ export function mountOrganPanel(root: HTMLElement, store: ParamStore, onTouch: O
     const model = organModel(store.get(modelKey));
     drawbarLabels(model).forEach((l, i) => bars[i]!.setCaption(l.short, l.name, l.used));
     const vib = vibratoTypeKey(model);
-    for (const c of vibTypes) c.el.hidden = c.key !== vib;
+    // The models swap one type row for another; a model without one (pipe) keeps the row's place
+    // empty, so the rows below never move.
+    vibTypes.forEach((c, i) => {
+      const placeholder = vib === null && i === 0;
+      c.el.hidden = c.key !== vib && !placeholder;
+      c.el.toggleAttribute('data-reserved', placeholder);
+    });
   };
   kit.onRebind(() => {
     modelKey = boundKey('organ', modelKey, store);

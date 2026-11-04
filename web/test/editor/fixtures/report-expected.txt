@@ -26,14 +26,14 @@ synth · layer a · amp env
 synth · layer a · arp
   run                           on                                init off
 synth · layer b · oscillator
-  mode                          samples [not implemented]         init analog
+  mode                          samples [not verified]            init analog
   type                          4 (WAVE) [not implemented]        init 1 (ANALOG)
   pitch                         -12 semi                          init + 0 semi
 layer effects · layer a · synth fx
-  fx reverb on/off              on [not implemented]              init off
+  reverb on                     on                                init off
 no control
   synth on · scene ii           on                                init off
 no control · layer a
-  freq · wheel morph            +40 [not verified] [not implemented]  init 0
+  freq · wheel morph            +40 [not verified]                init 0
 
 17 changed values

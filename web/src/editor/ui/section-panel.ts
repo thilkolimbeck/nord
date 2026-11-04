@@ -5,12 +5,12 @@
  * separate on/off toggle per layer, faders and switches of the focused layer). Scene switches are
  * read and written through model/scene.ts, never through `_I` literals (plan section 13.6).
  */
-import { setLayerEnabled } from '../model/actions.ts';
+import { setLayerEnabled, setLayerFocus } from '../model/actions.ts';
 import { descriptorOf } from '../model/descriptors.ts';
 import type { Ns4Key } from '../model/keys.ts';
 import {
-  activeKey, activeScene, focusedLayer, focusEntry, type LayerOf, layerOn, SCENE_KEY, SCENES, SECTION_FIELDS,
-  SECTION_LAYERS, sceneKey, type SectionId,
+  activeKey, activeScene, focusedLayer, type LayerOf, layerOn, SCENE_KEY, SCENES, SECTION_FIELDS, SECTION_LAYERS, sceneKey,
+  type SectionId,
 } from '../model/scene.ts';
 import type { ParamStore } from '../model/store.ts';
 import { boundKey } from './control-model.ts';
@@ -66,9 +66,9 @@ export function sectionKit<S extends SectionId>(section: S, store: ParamStore, o
       h('span', { class: 'led', 'aria-hidden': 'true' }), h('span', { 'aria-hidden': 'true' }, 'on/off'));
       offs.push(
         listen(key, 'click', () => {
-          const [k, v] = focusEntry(section, layer, activeScene(store));
-          store.set(k, v, 'ui');
-          onTouch(k);
+          // The FX focus follows the layer focus (M p.48).
+          setLayerFocus(store, section, layer);
+          onTouch(activeKey(store, SECTION_FIELDS[section].focus));
         }),
         listen(toggle, 'click', () => {
           setLayerEnabled(store, section, layer, !layerOn(store, section, layer));

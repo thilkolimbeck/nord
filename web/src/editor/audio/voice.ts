@@ -9,6 +9,12 @@
  * Envelopes are scheduled from envelope.ts and their level is computed there, never read back from
  * an AudioParam. The voice stops its sources when the amp envelope falls below -80 dB and reports
  * that through onEnded, so the allocator frees it.
+ *
+ * Source providers (sources.ts, plan section 15): the layer's providers may build the oscillator
+ * graph instead of oscillators.ts (own samples in samples mode, the AudioWorklet oscillators); the
+ * first one that answers wins, the native builder takes the rest. Filter providers likewise may
+ * build the stage between the mixer and the VCA (the AudioWorklet LP M ladder and drive, plan
+ * 15.7); the native drive shaper and biquads (buildBiquads) take the rest.
  */
 import { attackSteps, envEndTime, type EnvSchedule, type EnvStep, envValueAt, releaseSteps } from './envelope.ts';
 import {
@@ -18,6 +24,7 @@ import {
 import type { SynthLayer } from '../model/keys.ts';
 import type { ValueReader } from '../model/labels.ts';
 import { buildOscGraph, type OscGraph } from './oscillators.ts';
+import { buildSource, type FilterStage, type VoiceHooks } from './sources.ts';
 import { tanhCurve } from './waveforms.ts';
 
 /** What a layer hands its voices: where to play and the shared modulation signals. */
@@ -31,6 +38,8 @@ export interface LayerTaps {
   readonly filterMod: AudioNode;
   /** LFO to osc ctrl, in osc ctrl units. */
   readonly ctrlMod: AudioNode;
+  /** Source and filter providers of the layer (sources.ts); none: the native graph only. */
+  readonly hooks?: VoiceHooks;
 }
 
 /** Live changes a voice follows while it sounds (audio/bindings.ts names which field causes which). */
@@ -83,6 +92,101 @@ function unlink(from: AudioNode, to: AudioNode | AudioParam): void {
 
 type FilterRole = 'main' | 'second' | 'lphp-lp' | 'lphp-hp';
 
+function filterValues(role: FilterRole, type: BiquadFilterType, spec: FilterSpec): { freq: number; q: number } {
+  if (role === 'lphp-hp') return { freq: spec.hpFreq, q: biquadQ(type, BUTTERWORTH_Q) };
+  if (role === 'second' || role === 'lphp-lp') return { freq: spec.freq, q: biquadQ(type, BUTTERWORTH_Q) };
+  return { freq: spec.freq, q: biquadQ(type, spec.q) };
+}
+
+/** The native filter of one voice by type (plan 4.1), without drive: biquads, the cutoff source on their detune. */
+export interface BiquadNet {
+  /** Connects `head` into the filter and returns the filter's output. */
+  attach(head: AudioNode): AudioNode;
+  /** Live frequency and resonance (Q; LP+HP: the highpass frequency). */
+  update(spec: FilterSpec, t: number): void;
+  /** The biquads' frequency values in Hz, for inspection. */
+  frequencies(): number[];
+  disconnect(): void;
+}
+
+/**
+ * The biquads of a filter type: LP12 one lowpass, LP24 and LP M two (the voice adds LP M's soft
+ * clip), LP+HP a parallel lowpass and highpass, BP and HP one each. `cutoff` (cents) drives every
+ * detune except the LP+HP highpass. Also the filter behind the AudioWorklet drive stage.
+ */
+export function buildBiquads(ctx: BaseAudioContext, spec: FilterSpec, cutoff: AudioNode): BiquadNet {
+  const filters: Array<{ node: BiquadFilterNode; role: FilterRole }> = [];
+  const nodes: AudioNode[] = [];
+  const biquad = (type: BiquadFilterType, role: FilterRole): BiquadFilterNode => {
+    const f = ctx.createBiquadFilter();
+    nodes.push(f);
+    f.type = type;
+    const v = filterValues(role, type, spec);
+    f.frequency.value = v.freq;
+    f.Q.value = v.q;
+    if (role !== 'lphp-hp') cutoff.connect(f.detune);
+    filters.push({ node: f, role });
+    return f;
+  };
+  const wire = (): ((head: AudioNode) => AudioNode) => {
+    switch (spec.type) {
+      case 'lp12': {
+        const f = biquad('lowpass', 'main');
+        return (head) => head.connect(f);
+      }
+      case 'lphp': {
+        const sum = ctx.createGain();
+        nodes.push(sum);
+        sum.gain.value = 0.7;
+        const lp = biquad('lowpass', 'lphp-lp');
+        const hp = biquad('highpass', 'lphp-hp');
+        lp.connect(sum);
+        hp.connect(sum);
+        return (head) => {
+          head.connect(lp);
+          head.connect(hp);
+          return sum;
+        };
+      }
+      case 'bp': {
+        const f = biquad('bandpass', 'main');
+        return (head) => head.connect(f);
+      }
+      case 'hp': {
+        const f = biquad('highpass', 'main');
+        return (head) => head.connect(f);
+      }
+      case 'lp24':
+      case 'lpm':
+      default: {
+        const a = biquad('lowpass', 'main');
+        const b = biquad('lowpass', 'second');
+        a.connect(b);
+        return (head) => {
+          head.connect(a);
+          return b;
+        };
+      }
+    }
+  };
+  const attach = wire();
+  return {
+    attach,
+    update(next: FilterSpec, t: number): void {
+      for (const f of filters) {
+        const { freq, q } = filterValues(f.role, f.node.type, next);
+        f.node.frequency.setTargetAtTime(freq, t, SMOOTH);
+        f.node.Q.setTargetAtTime(q, t, SMOOTH);
+      }
+    },
+    frequencies: () => filters.map((f) => f.node.frequency.value),
+    disconnect(): void {
+      for (const f of filters) if (f.role !== 'lphp-hp') unlink(cutoff, f.node.detune);
+      for (const n of nodes) n.disconnect();
+    },
+  };
+}
+
 export class Voice {
   readonly id: number;
   readonly layer: SynthLayer;
@@ -109,8 +213,12 @@ export class Voice {
   readonly #vca: GainNode;
 
   #graph: { osc: OscGraph; fade: GainNode } | null = null;
+  /** Native drive and LP M soft-clip shapers. */
   #chain: AudioNode[] = [];
-  #filters: Array<{ node: BiquadFilterNode; role: FilterRole }> = [];
+  /** The native biquads, or null with the filter off or a provider's stage in place. */
+  #net: BiquadNet | null = null;
+  /** A filter provider's stage and the cutoff it was last given (for inspection). */
+  #stage: { readonly stage: FilterStage; hz: number[] } | null = null;
   #amp: EnvSchedule;
   #oscEnvS: EnvSchedule;
   #fltEnvS: EnvSchedule;
@@ -176,7 +284,7 @@ export class Voice {
     this.#vca = ctx.createGain();
     this.#vca.gain.value = 0;
     this.#vca.connect(taps.bus);
-    this.#buildChain(fSpec);
+    this.#buildChain(fSpec, values);
 
     // Envelopes.
     const env = (which: 'osc' | 'flt' | 'amp', peak: number): EnvSchedule => {
@@ -200,9 +308,9 @@ export class Voice {
     return this.#note;
   }
 
-  /** The filter biquads' frequency values in Hz, for inspection (empty with the filter off). */
+  /** The filter's frequency values in Hz, for inspection (empty with the filter off; a provider's stage: its cutoff). */
   get filterFrequencies(): number[] {
-    return this.#filters.map((f) => f.node.frequency.value);
+    return this.#stage?.hz ?? this.#net?.frequencies() ?? [];
   }
 
   /** Whether the voice has stopped and let go of its nodes. */
@@ -296,16 +404,15 @@ export class Voice {
         break;
       }
       case 'filterChain':
-        this.#buildChain(filterSpec(values, layer, this.#ctx.sampleRate));
+        this.#buildChain(filterSpec(values, layer, this.#ctx.sampleRate), values);
         break;
       case 'filterParams': {
         const spec = filterSpec(values, layer, this.#ctx.sampleRate);
         this.#cutoff.offset.setTargetAtTime(kbdTrackCents(spec.kbdTrack, this.#note), t, SMOOTH);
-        for (const f of this.#filters) {
-          const { freq, q } = this.#filterValues(f.role, f.node.type, spec);
-          f.node.frequency.setTargetAtTime(freq, t, SMOOTH);
-          f.node.Q.setTargetAtTime(q, t, SMOOTH);
-        }
+        if (this.#stage !== null) {
+          this.#stage.stage.update(spec, t);
+          this.#stage.hz = [spec.freq];
+        } else this.#net?.update(spec, t);
         break;
       }
       case 'filterEnvDepth':
@@ -335,8 +442,14 @@ export class Voice {
     const old = this.#graph;
     const spec = oscSpec(values, this.layer);
     this.#graph = null;
-    if ('bank' in spec) {
-      const osc = buildOscGraph(this.#ctx, spec, { pitch: this.#pitch, ctrl: this.#ctrl }, this.#unison, this.#pitchAt(t));
+    const inputs = { pitch: this.#pitch, ctrl: this.#ctrl };
+    const cents = this.#pitchAt(t);
+    const provided = buildSource(this.#taps.hooks?.sources ?? [], {
+      ctx: this.#ctx, values, layer: this.layer, note: this.#note, velocity: this.#velocity, spec, inputs,
+      unison: this.#unison, cents,
+    });
+    const osc = provided ?? ('bank' in spec ? buildOscGraph(this.#ctx, spec, inputs, this.#unison, cents) : null);
+    if (osc !== null) {
       const g = this.#ctx.createGain();
       osc.output.connect(g).connect(this.#mixer);
       if (fade && old !== null) {
@@ -360,70 +473,44 @@ export class Voice {
     }
   }
 
-  #filterValues(role: FilterRole, type: BiquadFilterType, spec: FilterSpec): { freq: number; q: number } {
-    if (role === 'lphp-hp') return { freq: spec.hpFreq, q: biquadQ(type, BUTTERWORTH_Q) };
-    if (role === 'second' || role === 'lphp-lp') return { freq: spec.freq, q: biquadQ(type, BUTTERWORTH_Q) };
-    return { freq: spec.freq, q: biquadQ(type, spec.q) };
-  }
-
-  /** mixer ─► [drive] ─► filter ─► [soft clip for LP M] ─► VCA, or mixer ─► VCA with the filter off. */
-  #buildChain(spec: FilterSpec): void {
+  /**
+   * mixer ─► [drive] ─► filter ─► [soft clip for LP M] ─► VCA, or mixer ─► VCA with the filter off.
+   * A filter provider (plan 15.7) may build the whole stage between mixer and VCA, drive included.
+   */
+  #buildChain(spec: FilterSpec, values: ValueReader): void {
     const ctx = this.#ctx;
     this.#mixer.disconnect();
     for (const n of this.#chain) n.disconnect();
-    for (const f of this.#filters) unlink(this.#cutoff, f.node.detune);
+    this.#net?.disconnect();
+    this.#stage?.stage.disconnect();
     this.#chain = [];
-    this.#filters = [];
+    this.#net = null;
+    this.#stage = null;
     if (!spec.enabled) {
       this.#mixer.connect(this.#vca);
       return;
     }
+    for (const provider of this.#taps.hooks?.filters ?? []) {
+      const stage = provider.build({ ctx, values, layer: this.layer, spec, cutoff: this.#cutoff });
+      if (stage === null) continue;
+      this.#mixer.connect(stage.input);
+      stage.output.connect(this.#vca);
+      this.#stage = { stage, hz: [spec.freq] };
+      return;
+    }
     let head: AudioNode = this.#mixer;
-    const push = <N extends AudioNode>(n: N): N => {
-      this.#chain.push(n);
-      return n;
-    };
-    const biquad = (type: BiquadFilterType, role: FilterRole): BiquadFilterNode => {
-      const f = push(ctx.createBiquadFilter());
-      f.type = type;
-      const v = this.#filterValues(role, type, spec);
-      f.frequency.value = v.freq;
-      f.Q.value = v.q;
-      if (role !== 'lphp-hp') this.#cutoff.connect(f.detune);
-      this.#filters.push({ node: f, role });
-      return f;
-    };
     const shaper = (gain: number): WaveShaperNode => {
-      const s = push(ctx.createWaveShaper());
+      const s = ctx.createWaveShaper();
+      this.#chain.push(s);
       s.curve = tanhCurve(gain);
       s.oversample = '2x';
       return s;
     };
     if (spec.drive > 0) head = head.connect(shaper(driveGain(spec.drive)));
-    switch (spec.type) {
-      case 'lp12':
-        head = head.connect(biquad('lowpass', 'main'));
-        break;
-      case 'lp24':
-      case 'lpm':
-        head = head.connect(biquad('lowpass', 'main')).connect(biquad('lowpass', 'second'));
-        if (spec.type === 'lpm') head = head.connect(shaper(1.5));
-        break;
-      case 'lphp': {
-        const sum = push(ctx.createGain());
-        sum.gain.value = 0.7;
-        head.connect(biquad('lowpass', 'lphp-lp')).connect(sum);
-        head.connect(biquad('highpass', 'lphp-hp')).connect(sum);
-        head = sum;
-        break;
-      }
-      case 'bp':
-        head = head.connect(biquad('bandpass', 'main'));
-        break;
-      case 'hp':
-        head = head.connect(biquad('highpass', 'main'));
-        break;
-    }
+    const net = buildBiquads(ctx, spec, this.#cutoff);
+    this.#net = net;
+    head = net.attach(head);
+    if (spec.type === 'lpm') head = head.connect(shaper(1.5));
     head.connect(this.#vca);
   }
 
@@ -453,8 +540,11 @@ export class Voice {
     this.#graph = null;
     for (const n of [...this.#sources, this.#vib, this.#oscEnvPitch, this.#oscEnvCtrl, this.#fltEnvGain, this.#mixer,
       ...this.#chain, this.#vca]) n.disconnect();
+    this.#net?.disconnect();
+    this.#stage?.stage.disconnect();
     this.#chain = [];
-    this.#filters = [];
+    this.#net = null;
+    this.#stage = null;
     this.onEnded?.(this.id);
   }
 }

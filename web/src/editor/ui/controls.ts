@@ -3,16 +3,21 @@
  * switch key, layer mask and read-only readout, plus the organ drawbar (a vertical fader) and the
  * piano model select. Each has a visible label, the value with its unit, the range and status
  * notes in the description (aria-describedby), the status markers ('nv', 'coarse', '≈', the
- * stored line such as 'stored setting, no sound') and a read-only morph dot. rebind(key) moves a control to the same field of
- * another layer or scene; dispose() removes listeners and subscriptions.
+ * stored line such as 'stored setting, no sound') and, for a field with morph amounts, a small
+ * `m` disclosure key whose LED lights while an amount is set; open, it shows the three amounts
+ * (wheel, a.t., ctrl ped) as signed faders with the value each source reaches (plan 15.9).
+ * rebind(key) moves a control to the same field of another layer, scene or effects block;
+ * dispose() removes listeners and subscriptions.
  */
 import { setPianoModel } from '../model/actions.ts';
 import { clampValue, descriptorOf, type EnumOption, optionsFor, type ParamDescriptor } from '../model/descriptors.ts';
 import { type Ns4Key, patternOf } from '../model/keys.ts';
 import type { ParamStore } from '../model/store.ts';
+import { MORPH_NOTE } from '../model/curated.ts';
 import {
-  APPROX_PIANO, controlKind, controlPattern, descriptionText, isCoarse, isOffOn, morphAmounts, morphLabel, optionText, sectionLayerOf,
-  shownDeps, shownValue, storedLine as storedText, valueView, writeControl,
+  APPROX_PIANO, controlKind, controlPattern, descriptionText, isCoarse, isOffOn, morphAmountChars, morphKeyLabel, morphRows,
+  optionText, sectionLayerOf, shownDeps, shownValue, spokenValue, storedLine as storedText, valueReserve, valueView,
+  writeControl,
 } from './control-model.ts';
 import { h, listen, uid } from './dom.ts';
 import { MODEL_GROUPS, modelChoice } from './region-model.ts';
@@ -38,16 +43,20 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
   const ids = { label: `${base}-label`, input: `${base}-input`, desc: `${base}-desc`, value: `${base}-value`, stored: `${base}-stored` };
 
   const labelText = h('span', { class: 'ctl-label-text' }, d.label);
-  const dot = h('span', { class: 'morph-dot', role: 'img', hidden: true });
   const label = kind === 'fader' || kind === 'select'
-    ? h('label', { class: 'ctl-label', id: ids.label, for: ids.input }, labelText, dot)
-    : h('span', { class: 'ctl-label', id: ids.label }, labelText, dot);
+    ? h('label', { class: 'ctl-label', id: ids.label, for: ids.input }, labelText)
+    : h('span', { class: 'ctl-label', id: ids.label }, labelText);
+  const morph = d.morphs === null || kind === 'readout' ? null : morphEditor(() => d, store, onTouch);
+  const head = h('span', { class: 'ctl-head' }, label, morph?.key ?? null);
   const valueText = h('span', { class: 'ctl-text' });
   const suffix = h('span', { class: 'ctl-suffix' });
   const valueCell = h('span', { class: 'ctl-value', id: ids.value }, valueText, suffix);
   const desc = h('span', { class: 'visually-hidden', id: ids.desc });
   const storedLine = h('span', { class: 'ctl-stored', id: ids.stored, hidden: true }, storedText(d));
   const row = h('div', { class: `ctl ctl-${kind}`, 'data-key': d.key });
+  // The value cell keeps the width of the longest value and markers the field can show, so the
+  // row and the fader beside it never move while the value changes (rebind keeps the pattern).
+  reserveValue(row, valueReserve(d));
 
   const offs: (() => void)[] = [];
   let subs: (() => void)[] = [];
@@ -68,8 +77,7 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
       input.min = String(d.min);
       input.max = String(d.max);
       input.value = String(value);
-      const v = valueView(d, value, store, coarse);
-      input.setAttribute('aria-valuetext', [v.text, ...v.suffixes].join(' '));
+      input.setAttribute('aria-valuetext', spokenValue(d, value, store, coarse));
       input.setAttribute('aria-describedby', describedBy());
       const span = d.max - d.min;
       input.style.setProperty('--fill', `${span === 0 ? 0 : ((value - d.min) / span) * 100}%`);
@@ -142,7 +150,8 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
     show = () => undefined;
   }
 
-  row.append(label, middle, valueCell, desc, storedLine);
+  row.append(head, middle, valueCell, desc, storedLine);
+  if (morph !== null) row.append(morph.panel);
 
   function refresh(): void {
     const value = shownValue(d, store);
@@ -155,10 +164,7 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
     storedLine.hidden = !v.stored;
     storedLine.textContent = storedText(d);
     desc.textContent = descriptionText(d, value, store, coarse);
-    const name = morphLabel(morphAmounts(d, store, descriptorOf));
-    dot.hidden = name === null;
-    if (name === null) dot.removeAttribute('aria-label');
-    else dot.setAttribute('aria-label', name);
+    morph?.refresh();
   }
 
   function bind(): void {
@@ -190,9 +196,101 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
       for (const off of [...offs, ...subs]) off();
       offs.length = 0;
       subs = [];
+      morph?.dispose();
       row.remove();
     },
   };
+}
+
+/** The morph disclosure of a control: the `m` key (after the label) and the panel it opens. */
+export interface MorphEditor {
+  readonly key: HTMLButtonElement;
+  readonly panel: HTMLElement;
+  /** Re-read the amounts and end values (the control calls it on every refresh). */
+  refresh(): void;
+  dispose(): void;
+}
+
+/**
+ * The morph editor of the field `current()` names (plan 15.9): three rows wheel, a.t., ctrl ped,
+ * each a signed fader for the amount (0 in the middle) and the value that source reaches at full
+ * travel ('→ 4.8 kHz'), all not verified. A move writes the amount (a synth or effects group
+ * writes every layer) and touches it, so the display shows start → end.
+ */
+export function morphEditor(current: () => ParamDescriptor, store: ParamStore, onTouch: OnTouch): MorphEditor {
+  const base = uid(`morph-${controlPattern(current().key)}`);
+  const noteId = `${base}-note`;
+  const led = h('span', { class: 'led', 'aria-hidden': 'true' });
+  const key = h('button', { class: 'bool-key morph-key', type: 'button', 'aria-expanded': 'false', 'aria-controls': base },
+    led, h('span', { 'aria-hidden': 'true' }, 'm'));
+  const note = h('span', { class: 'visually-hidden', id: noteId }, `not verified: ${MORPH_NOTE}`);
+  const offs: (() => void)[] = [];
+  const rows = morphRows(current(), store).map((r) => {
+    const inputId = `${base}-${r.source}`;
+    const input = h('input', { class: 'fader fader-signed', type: 'range', id: inputId, step: 1,
+      'aria-describedby': noteId });
+    const amount = h('span', { class: 'ctl-text' });
+    const end = h('span', { class: 'morph-end' });
+    const el = h('div', { class: 'ctl ctl-fader morph-row', 'data-nv': true },
+      h('span', { class: 'ctl-head' }, h('label', { class: 'ctl-label', for: inputId },
+        h('span', { class: 'ctl-label-text' }, r.label))),
+      input, h('span', { class: 'ctl-value', 'aria-hidden': 'true' }, amount, h('span', { class: 'ctl-suffix' }, 'nv')), end);
+    offs.push(listen(input, 'input', () => {
+      const row = morphRows(current(), store).find((x) => x.source === r.source)!;
+      writeControl(store, descriptorOf(row.key), Number(input.value));
+      onTouch(row.key);
+    }));
+    return { source: r.source, input, amount, end, el };
+  });
+  const panel = h('div', { class: 'morph-panel', id: base, role: 'group', hidden: true },
+    note, ...rows.map((r) => r.el));
+  offs.push(listen(key, 'click', () => {
+    const open = key.getAttribute('aria-expanded') !== 'true';
+    key.setAttribute('aria-expanded', String(open));
+    panel.hidden = !open;
+  }));
+
+  const refresh = (): void => {
+    const d = current();
+    const name = morphKeyLabel(d, store);
+    key.setAttribute('aria-label', `${d.label} ${name}`);
+    panel.setAttribute('aria-label', `${d.label} morph amounts`);
+    const view = morphRows(d, store);
+    key.classList.toggle('lit', view.some((r) => r.amount !== 0));
+    for (const r of rows) {
+      const v = view.find((x) => x.source === r.source)!;
+      r.input.min = String(v.min);
+      r.input.max = String(v.max);
+      r.input.value = String(v.amount);
+      r.input.setAttribute('aria-valuetext', `${v.amountText}, to ${v.endSpoken}, not verified`);
+      reserveValue(r.el, { text: morphAmountChars(v.min, v.max), marks: 'nv'.length });
+      const span = v.max - v.min;
+      const at = span === 0 ? 50 : ((v.amount - v.min) / span) * 100;
+      const zero = span === 0 ? 50 : ((0 - v.min) / span) * 100;
+      r.input.style.setProperty('--lo', `${Math.min(at, zero)}%`);
+      r.input.style.setProperty('--hi', `${Math.max(at, zero)}%`);
+      r.amount.textContent = v.amountText;
+      r.end.textContent = v.endText;
+      r.end.title = v.endText;
+    }
+  };
+  refresh();
+  return {
+    key, panel, refresh,
+    dispose(): void {
+      for (const off of offs) off();
+      offs.length = 0;
+    },
+  };
+}
+
+/**
+ * Reserve a row's value cell (editor.css .ctl-value): --value-ch for the value text and --marks-ch
+ * for the markers, in characters of the 11px mono face with its tracking.
+ */
+export function reserveValue(row: HTMLElement, reserve: { readonly text: number; readonly marks: number }): void {
+  row.style.setProperty('--value-ch', String(reserve.text));
+  row.style.setProperty('--marks-ch', String(reserve.marks));
 }
 
 /** A read-only readout line (layout-only regions): label and formatted value, not focusable. */
@@ -216,6 +314,8 @@ function watched(d: ParamDescriptor): Ns4Key[] {
 export interface DrawbarBound extends Bound {
   /** Change the caption under the drawbar and its accessible name (the organ model decides them). */
   setCaption(short: string, name: string, used: boolean): void;
+  /** The drawbar's morph editor panel; the organ region places it under the drawbars (a column is too narrow). */
+  readonly morphPanel: HTMLElement;
 }
 
 /**
@@ -228,15 +328,15 @@ export function drawbar(initial: ParamDescriptor, store: ParamStore, onTouch: On
   const ids = { input: `${base}-input`, caption: `${base}-caption`, desc: `${base}-desc` };
   const valueText = h('span', { class: 'drawbar-text' });
   const suffix = h('span', { class: 'ctl-suffix' });
-  const dot = h('span', { class: 'morph-dot', role: 'img', hidden: true });
-  const value = h('span', { class: 'drawbar-value', 'aria-hidden': 'true' }, valueText, suffix, dot);
+  const value = h('span', { class: 'drawbar-value', 'aria-hidden': 'true' }, valueText, suffix);
+  const morph = morphEditor(() => d, store, onTouch);
   const input = h('input', { class: 'fader drawbar-input', type: 'range', id: ids.input, step: 1,
     'aria-labelledby': ids.caption, 'aria-describedby': ids.desc });
   const captionShort = h('span', { 'aria-hidden': 'true' });
   const captionName = h('span', { class: 'visually-hidden' });
   const caption = h('label', { class: 'drawbar-caption', id: ids.caption, for: ids.input }, captionShort, captionName);
   const desc = h('span', { class: 'visually-hidden', id: ids.desc });
-  const el = h('div', { class: 'drawbar', 'data-key': d.key }, value, input, caption, desc);
+  const el = h('div', { class: 'drawbar', 'data-key': d.key }, value, input, caption, morph.key, desc);
   let subs: (() => void)[] = [];
   const off = listen(input, 'input', () => {
     store.set(d.key, Number(input.value), 'ui');
@@ -249,16 +349,13 @@ export function drawbar(initial: ParamDescriptor, store: ParamStore, onTouch: On
     input.min = String(d.min);
     input.max = String(d.max);
     input.value = String(v);
-    input.setAttribute('aria-valuetext', [view.text, ...view.suffixes].join(' '));
+    input.setAttribute('aria-valuetext', spokenValue(d, v, store, false));
     input.style.setProperty('--fill', `${d.max === d.min ? 0 : ((v - d.min) / (d.max - d.min)) * 100}%`);
     valueText.textContent = view.text;
     suffix.textContent = view.suffixes.join(' ');
     el.toggleAttribute('data-nv', view.nv);
     desc.textContent = descriptionText(d, v, store, false);
-    const name = morphLabel(morphAmounts(d, store, descriptorOf));
-    dot.hidden = name === null;
-    if (name === null) dot.removeAttribute('aria-label');
-    else dot.setAttribute('aria-label', name);
+    morph.refresh();
   }
 
   function bind(): void {
@@ -271,6 +368,7 @@ export function drawbar(initial: ParamDescriptor, store: ParamStore, onTouch: On
 
   return {
     el,
+    morphPanel: morph.panel,
     get key() { return d.key; },
     rebind(key: Ns4Key): void {
       if (key === d.key) return;
@@ -289,7 +387,9 @@ export function drawbar(initial: ParamDescriptor, store: ParamStore, onTouch: On
       off();
       for (const u of subs) u();
       subs = [];
+      morph.dispose();
       el.remove();
+      morph.panel.remove();
     },
   };
 }
@@ -303,9 +403,8 @@ export function pianoModelSelect(initial: ParamDescriptor, store: ParamStore, on
   let d = initial;
   const base = uid(`ctl-${controlPattern(d.key)}`);
   const ids = { label: `${base}-label`, input: `${base}-input`, desc: `${base}-desc` };
-  const dot = h('span', { class: 'morph-dot', role: 'img', hidden: true });
   const label = h('label', { class: 'ctl-label', id: ids.label, for: ids.input },
-    h('span', { class: 'ctl-label-text' }, d.label), dot);
+    h('span', { class: 'ctl-label-text' }, d.label));
   const select = h('select', { class: 'enum', id: ids.input, 'aria-describedby': ids.desc });
   const unknown = h('option', { value: '' });
   select.append(unknown, ...MODEL_GROUPS.map((g) => h('optgroup', { label: g.label },
@@ -314,7 +413,7 @@ export function pianoModelSelect(initial: ParamDescriptor, store: ParamStore, on
   const valueCell = h('span', { class: 'ctl-value', 'aria-hidden': 'true' }, suffix);
   const desc = h('span', { class: 'visually-hidden', id: ids.desc });
   const row = h('div', { class: 'ctl ctl-select ctl-model', 'data-key': d.key },
-    label, h('span', { class: 'enum-wrap' }, select), valueCell, desc);
+    h('span', { class: 'ctl-head' }, label), h('span', { class: 'enum-wrap' }, select), valueCell, desc);
   let subs: (() => void)[] = [];
   const off = listen(select, 'change', () => {
     if (select.value === '') return;
@@ -335,6 +434,7 @@ export function pianoModelSelect(initial: ParamDescriptor, store: ParamStore, on
     select.value = choice.playsModel ? String(hash) : '';
     const view = valueView(d, hash, store, false);
     suffix.textContent = view.suffixes.filter((x) => x !== 'nv').join(' ');
+    reserveValue(row, { text: 0, marks: suffix.textContent.length });
     desc.textContent = `${MODEL_COUNT} piano models, grouped by type. ${APPROX_PIANO}`;
   }
 

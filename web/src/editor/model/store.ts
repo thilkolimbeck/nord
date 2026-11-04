@@ -8,8 +8,14 @@ import { clampValue, DESCRIPTORS } from './descriptors.ts';
 import { NS4_KEYS, type Ns4Key } from './keys.ts';
 import type { ValueReader } from './labels.ts';
 
-/** Where a change came from: a control, MIDI, a file load, the init program, or a follow-up of another edit. */
-export type Origin = 'ui' | 'midi' | 'load' | 'init' | 'derived';
+/** Where a stored change came from: a control, MIDI, a file load, the init program, or a follow-up of another edit. */
+export type StoreOrigin = 'ui' | 'midi' | 'load' | 'init' | 'derived';
+/**
+ * Where a change came from. 'morph' is never written to the store: a morph source (wheel,
+ * aftertouch, control pedal) moved and a field's effective value changed (model/morph.ts,
+ * plan section 15.2). Such changes reach the engines only; the MIDI output never sends them.
+ */
+export type Origin = StoreOrigin | 'morph';
 
 export interface Change {
   readonly key: Ns4Key;
@@ -34,7 +40,7 @@ export interface ProgramSnapshot {
   readonly source: SourceProgram | null;
 }
 
-export type Entry = readonly [Ns4Key, number] | readonly [Ns4Key, number, Origin];
+export type Entry = readonly [Ns4Key, number] | readonly [Ns4Key, number, StoreOrigin];
 
 function copySource(source: SourceProgram | null): SourceProgram | null {
   return source === null ? null : { ...source, bytes: Uint8Array.from(source.bytes) };
@@ -61,13 +67,13 @@ export class ParamStore implements ValueReader {
   }
 
   /** Clamp and store one value; returns the value stored. No change, no notification. */
-  set(key: Ns4Key, value: number, origin: Origin = 'ui'): number {
+  set(key: Ns4Key, value: number, origin: StoreOrigin = 'ui'): number {
     this.setMany([[key, value]], origin);
     return this.get(key);
   }
 
   /** Clamp and store several values as one batch; an entry may carry its own origin ('derived'). */
-  setMany(entries: readonly Entry[], origin: Origin): void {
+  setMany(entries: readonly Entry[], origin: StoreOrigin): void {
     const batch: Change[] = [];
     for (const entry of entries) {
       const key = entry[0];

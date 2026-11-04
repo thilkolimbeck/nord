@@ -4,14 +4,18 @@
  * Section and layer switches act on the active layer scene (model/scene.ts, plan section 13.4).
  */
 import { clampValue, descriptorOf, optionsFor } from './descriptors.ts';
+import {
+  FX_BLOCKS, FX_GLOBAL_KEYS, FX_GROUP_KEYS, FX_GROUP_ON, FX_PARAMS, FX_UNIT_PARAMS, type FxBlock, fxBlockOf, fxBlocksOf,
+  fxFocusBlock, fxFocusEntries, fxGroupOn, fxSectionOf, type GlobalUnit, parseFxKey,
+} from './fx.ts';
 import { LAYERS, type Ns4Key, layerKey, layerOf, patternOf, type SynthLayer } from './keys.ts';
 import type { ValueReader } from './labels.ts';
 import { modelsOfType, pianoModel, PIANO_TYPES, pianoType } from './pianos.ts';
 import {
-  activeScene, focusedLayer, LAYER_BITS, layerMask, layerToggle, type LayerOf, type PianoLayer, type Scene,
+  activeScene, focusedLayer, focusEntry, LAYER_BITS, layerMask, layerToggle, type LayerOf, type PianoLayer, type Scene,
   sectionEntry, type SectionId,
 } from './scene.ts';
-import type { Entry, ParamStore } from './store.ts';
+import type { Entry, ParamStore, StoreOrigin } from './store.ts';
 
 /** The value of the layer enable mask bit of a layer (bit 0 = A, bit 1 = B, bit 2 = C). */
 export const LAYER_BIT: Readonly<Record<SynthLayer, number>> = LAYER_BITS;
@@ -200,17 +204,127 @@ export function setSynthGroup(store: ParamStore, group: SynthGroup, on: boolean)
 }
 
 /**
- * Write a synth layer field; while its Group is on, every layer gets the value (the other two
- * derived): "keeps further edits in sync between them" (M p.32). Other fields are a plain write.
+ * Write a field the way a control does: a synth layer field while its Group is on writes every
+ * layer (the other two derived), "keeps further edits in sync between them" (M p.32); a field of
+ * a piano or synth effects block while the section's effects are in group mode writes every block
+ * of the section (derived, M p.48; morph amounts included). Other fields are a plain write.
+ * `origin`: 'ui' for the panel, 'midi' for MIDI control in (midi/cc-in.ts).
  */
-export function setSynthParam(store: ParamStore, key: Ns4Key, value: number): void {
+export function setSynthParam(store: ParamStore, key: Ns4Key, value: number, origin: StoreOrigin = 'ui'): void {
+  const fx = parseFxKey(key);
+  if (fx !== null) {
+    setFxParam(store, key, value, origin);
+    return;
+  }
   const group = activeGroupOf(store, key);
   const layer = layerOf(key);
   if (group === null || layer === null) {
-    store.set(key, value, 'ui');
+    store.set(key, value, origin);
     return;
   }
   const v = clampValue(descriptorOf(key), value);
   const p = patternOf(key);
-  store.setMany([[key, v], ...LAYERS.filter((l) => l !== layer).map((l): Entry => [layerKey(l, p), v, 'derived'])], 'ui');
+  store.setMany([[key, v], ...LAYERS.filter((l) => l !== layer).map((l): Entry => [layerKey(l, p), v, 'derived'])], origin);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Layer effects (M p.48; plan section 15.1): group mode, Global mode and the FX focus.
+
+/** The same field in another block: ('pianoAFx.dlyMix', 'pianoBFx') → 'pianoBFx.dlyMix' (morph amounts too). */
+export function fxKeyIn(key: Ns4Key, block: FxBlock): Ns4Key {
+  const p = parseFxKey(key);
+  if (p === null) throw new Error(`${key} is not an effects field`);
+  return `${block}${key.slice(p.block.length)}` as Ns4Key;
+}
+
+/** Every key of a block: its 32 fields and their morph amounts. */
+export function fxBlockKeys(block: FxBlock): Ns4Key[] {
+  return FX_PARAMS.flatMap((param) => {
+    const key = `${block}.${param}` as Ns4Key;
+    const m = descriptorOf(key).morphs;
+    return m === null ? [key] : [key, m.wheel, m.afterTouch, m.ctrlPedal];
+  });
+}
+
+/** A field of an effects block; in group mode every block of the section gets the value (derived). */
+export function setFxParam(store: ParamStore, key: Ns4Key, value: number, origin: StoreOrigin = 'ui'): void {
+  const p = parseFxKey(key);
+  const section = p === null ? null : fxSectionOf(p.block);
+  if (p === null || section === null || !fxGroupOn(store, section)) {
+    store.set(key, value, origin);
+    return;
+  }
+  const v = clampValue(descriptorOf(key), value);
+  const others = fxBlocksOf(section).filter((b) => b !== p.block);
+  store.setMany([[key, v], ...others.map((b): Entry => [fxKeyIn(key, b), v, 'derived'])], origin);
+}
+
+/**
+ * Switch a section's effects group mode (M p.48). On copies the block of the section's focused
+ * effects layer to the section's other blocks (derived); off keeps every block as it is. The organ
+ * has one block for both layers and no switch.
+ */
+export function setFxGroup(store: ParamStore, section: 'piano' | 'synth', on: boolean): void {
+  const entries: Entry[] = [[FX_GROUP_KEYS[section], on ? FX_GROUP_ON : 1 - FX_GROUP_ON]];
+  if (on) {
+    const focus = fxFocusBlock(store);
+    const source = fxSectionOf(focus) === section ? focus : fxBlocksOf(section)[0]!;
+    for (const key of fxBlockKeys(source)) {
+      const value = store.get(key);
+      for (const b of fxBlocksOf(section)) if (b !== source) entries.push([fxKeyIn(key, b), value, 'derived']);
+    }
+  }
+  store.setMany(entries, 'ui');
+}
+
+/** The keys of one unit in a block, morph amounts included. */
+function unitKeys(block: FxBlock, unit: GlobalUnit): Ns4Key[] {
+  return (FX_UNIT_PARAMS[unit] as readonly string[]).flatMap((param) => {
+    const key = `${block}.${param}` as Ns4Key;
+    const m = descriptorOf(key).morphs;
+    return m === null ? [key] : [key, m.wheel, m.afterTouch, m.ctrlPedal];
+  });
+}
+
+/**
+ * Switch a unit's Global mode (M p.48, 52). Switching it off copies the FX focus block's settings
+ * of that unit to the other five blocks (derived): "When turning Global mode off all Layers will
+ * share the same settings" (p.48).
+ */
+export function setFxGlobal(store: ParamStore, unit: GlobalUnit, on: boolean): void {
+  const entries: Entry[] = [[FX_GLOBAL_KEYS[unit], on ? 1 : 0]];
+  if (!on) {
+    const focus = fxFocusBlock(store);
+    for (const key of unitKeys(focus, unit)) {
+      const value = store.get(key);
+      for (const b of FX_BLOCKS) if (b !== focus) entries.push([fxKeyIn(key, b), value, 'derived']);
+    }
+  }
+  store.setMany(entries, 'ui');
+}
+
+/** Put the FX focus on a block (the effects region's focus keys). */
+export function setFxFocus(store: ParamStore, block: FxBlock): void {
+  store.setMany(fxFocusEntries(block).map(([k, v]) => [k, v] as const), 'ui');
+}
+
+/**
+ * Focus a layer of a section in the active scene (the layer keys); the FX focus follows to that
+ * layer's block (derived): it "automatically follows the focus of Layer buttons" (M p.48).
+ */
+export function setLayerFocus<S extends SectionId>(store: ParamStore, section: S, layer: LayerOf<S>): void {
+  store.setMany(layerFocusEntries(store, section, layer), 'ui');
+}
+
+/**
+ * The entries of a layer focus in `scene` (default the active one): the focus field, and when
+ * `scene` is the active scene the FX focus on that layer's block (derived), as setLayerFocus
+ * writes them. MIDI control in uses it for the focus controllers (CC 82/83, 109/112, 115/119).
+ */
+export function layerFocusEntries<S extends SectionId>(values: ValueReader, section: S, layer: LayerOf<S>,
+  scene: Scene = activeScene(values)): Entry[] {
+  const [key, value] = focusEntry(section, layer, scene);
+  if (scene !== activeScene(values)) return [[key, value]];
+  const fx = fxFocusEntries(fxBlockOf(section, layer)).map(([k, v]): Entry => [k, v, 'derived']);
+  return [[key, value], ...fx];
 }

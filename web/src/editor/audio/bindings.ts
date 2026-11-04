@@ -55,7 +55,10 @@ export const BINDINGS: Readonly<Record<string, Binding>> = {
   'synth.kbdHoldEnableCommon': b('hold', 'live', 'section', 'notes kept after key-up; off releases them'),
 
   // Oscillator
-  'synth{L}.mode': b('source', 'live', 'voice', 'oscillator graph (samples: silent)'),
+  'synth{L}.mode': b('source', 'live', 'voice', 'oscillator graph (samples: the own sample, else silent)'),
+  // Own samples (plan 15.3, M p.28): the sample graph of audio/samples/provider.ts.
+  'synth{L}Sound.smpDynamic': b('source', 'live', 'voice', 'own sample graph: velocity level and filter, start point'),
+  'synth{L}Sound.smpTimbre': b('source', 'live', 'voice', 'own sample graph: bright high shelf'),
   'synth{L}Sound.oscBank': b('source', 'live', 'voice', 'oscillator graph (wave: silent)'),
   'synth{L}Sound.oscCat': b('source', 'live', 'voice', 'oscillator graph'),
   'synth{L}Sound.oscWave': b('source', 'live', 'voice', 'oscillator graph'),

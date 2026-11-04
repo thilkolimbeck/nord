@@ -11,6 +11,47 @@
   gap: 8px;
 }
 
+/* Each item reserves its widest state, so a status change (audio starting at the first key, midi
+   being enabled) never moves, wraps or pushes the legend row; the content sits at the item's end.
+   A character is 1ch plus the 0.03em tracking, a key's label 1ch (keys have no tracking); a key
+   adds 8px padding and a 1px border each side; 1px slack. */
+.status-strip {
+  justify-content: flex-end;
+}
+
+.status-item {
+  justify-content: flex-end;
+}
+
+/* audio: the LED, 'audio', 'blocked' and the start audio key. */
+.status-audio {
+  min-width: calc(12px + 5 * (1ch + 0.03em) + 8px + 7 * (1ch + 0.03em) + 8px + 11ch + 18px + 1px);
+}
+
+/* midi: the LED, 'midi' and its longest status, 'not supported in this browser' (29 characters);
+   'connected: <names>' is cut there with an ellipsis. */
+.status-midi {
+  min-width: calc(12px + 4 * (1ch + 0.03em) + 8px + 29 * (1ch + 0.03em) + 1px);
+}
+
+/* As tall as a key, so a key appearing or going (start audio, enable midi) keeps the line height. */
+.status-item {
+  min-height: 22px;
+}
+
+@media (max-width: 759px), (pointer: coarse) {
+  .status-item {
+    min-height: 44px;
+  }
+}
+
+.status-midi .status-word {
+  max-width: calc(29 * (1ch + 0.03em) + 1px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 /* Blocked, error, not supported: the LED becomes an accent outline. */
 .led.led-alert {
   box-sizing: border-box;

@@ -3,7 +3,9 @@
  * enable LED and focus, a separate on/off toggle per layer, level and pan of the focused layer,
  * then the synth-wide switches), and below it the groups oscillator, filter, amp env,
  * lfo · vibrato, voice, keyboard, osc env and arp. The controls edit the focused layer of the
- * active layer scene and are rebound when the focus or the scene changes (model/scene.ts).
+ * active layer scene and are rebound when the focus or the scene changes (model/scene.ts). With
+ * own samples (plan 15.3) the oscillator group also shows the focused layer's own sample while
+ * it is in samples mode (ui/sample-layer.ts).
  */
 import { layerKey } from '../model/keys.ts';
 import { keysOf, PANEL } from '../model/sections.ts';
@@ -12,6 +14,8 @@ import type { ParamStore } from '../model/store.ts';
 import { controlPattern } from './control-model.ts';
 import type { Bound, OnTouch } from './controls.ts';
 import { h } from './dom.ts';
+import type { OwnSamples } from './own-samples.ts';
+import { mountSampleLayer } from './sample-layer.ts';
 import { group, sectionKit } from './section-panel.ts';
 
 /** Shown in the layer strip as faders of the focused layer. */
@@ -25,7 +29,7 @@ export interface SynthPanelApi {
   dispose(): void;
 }
 
-export function mountSynthPanel(root: HTMLElement, store: ParamStore, onTouch: OnTouch): SynthPanelApi {
+export function mountSynthPanel(root: HTMLElement, store: ParamStore, onTouch: OnTouch, samples?: OwnSamples): SynthPanelApi {
   const region = PANEL.find((r) => r.id === 'synth')!;
   const [layersGroup, ...groups] = region.groups;
   const kit = sectionKit('synth', store, onTouch);
@@ -39,8 +43,10 @@ export function mountSynthPanel(root: HTMLElement, store: ParamStore, onTouch: O
     h('div', { class: 'strip-faders' }, ...faderKeys.map((k) => el(kit.make(k)))),
     h('div', { class: 'strip-switches' }, ...switchKeys.map((k) => el(kit.make(k)))));
 
+  const sampleLayer = samples === undefined ? null : mountSampleLayer(store, samples);
   const grid = h('div', { class: 'synth-groups' },
-    ...groups.map((g) => group(g.id, g.title, ...keysOf(g, layer).map((k) => el(kit.make(k))))));
+    ...groups.map((g) => group(g.id, g.title, ...keysOf(g, layer).map((k) => el(kit.make(k))),
+      ...(g.id === 'oscillator' && sampleLayer !== null ? [sampleLayer.el] : []))));
 
   root.replaceChildren(strip, grid);
 
@@ -48,6 +54,7 @@ export function mountSynthPanel(root: HTMLElement, store: ParamStore, onTouch: O
     controls: kit.controls,
     dispose(): void {
       kit.dispose();
+      sampleLayer?.dispose();
       root.replaceChildren();
     },
   };

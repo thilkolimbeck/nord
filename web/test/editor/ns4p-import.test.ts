@@ -117,8 +117,8 @@ test('notes: approximated sections, layer modes, arp, layer effects, morphs, spl
   const has = (re: RegExp): void => assert.ok(notes.some((n) => re.test(n)), `${re} in ${notes.join(' | ')}`);
   has(/^organ is on in scene I: it plays as an approximation/);
   has(/^piano is on in scene I: it plays as a synthesized approximation, no Nord samples/);
-  has(/^organ has layer effects on \(reverb\): not implemented/);
-  has(/^piano layer b has layer effects on \(amp, delay\): not implemented/);
+  has(/^organ has layer effects on \(reverb\): they play as approximations/);
+  has(/^piano layer b has layer effects on \(amp, delay\): they play as approximations/);
   has(/^synth layer a uses samples mode/);
   has(/^synth layer b uses the wave oscillator type/);
   has(/^synth layer c has extern on/);

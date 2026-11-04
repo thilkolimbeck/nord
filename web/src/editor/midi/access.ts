@@ -1,11 +1,14 @@
 /**
  * Web MIDI input (plan section 1, AC 7): asks for access only when the user presses `enable midi`,
  * never with SysEx, listens to every connected input (omni) and follows connects and disconnects.
- * Outputs are never opened and nothing is sent to hardware. The status is a pure state machine
- * (midiStatusReducer) with short texts for the status strip (docs/web-design.md, "Editor").
+ * This module opens no output and sends nothing: MIDI output (plan section 15.5) reads the access
+ * object through onAccess and sends only while the user has switched it on (midi/output.ts).
+ * onMessage hands every parsed channel message to MIDI control in (midi/cc-in.ts). The status is a
+ * pure state machine (midiStatusReducer) with short texts for the status strip (docs/web-design.md).
  */
 import type { PlayBus } from '../input/events.ts';
-import { parseMidiMessage, toPlayEvents } from './parser.ts';
+import type { MidiOutputLike } from './output.ts';
+import { type MidiEvent, parseMidiMessage, toPlayEvents } from './parser.ts';
 
 export type MidiStatus =
   | { kind: 'off' }
@@ -125,6 +128,8 @@ export interface MidiInputLike {
 }
 export interface MidiAccessLike {
   readonly inputs: { forEach(fn: (input: MidiInputLike) => void): void };
+  /** The output ports (plan section 15.5); optional so fakes without outputs still work. */
+  readonly outputs?: { forEach(fn: (output: MidiOutputLike) => void): void };
   onstatechange: ((ev: unknown) => void) | null;
 }
 export interface MidiNavigator {
@@ -135,6 +140,8 @@ export class MidiInput {
   readonly #bus: PlayBus;
   readonly #nav: MidiNavigator;
   readonly #listeners = new Set<(s: MidiStatus) => void>();
+  readonly #messageListeners = new Set<(e: MidiEvent, inputId: string) => void>();
+  readonly #accessListeners = new Set<(access: MidiAccessLike | null) => void>();
   #status: MidiStatus = MIDI_OFF;
   #access: MidiAccessLike | null = null;
   /** Inputs we listen to, with the notes and sustain they hold (released when they disconnect). */
@@ -148,6 +155,30 @@ export class MidiInput {
 
   get status(): MidiStatus {
     return this.#status;
+  }
+
+  /** The browser's MIDI access after `enable midi`; null before, after disable and when refused. */
+  get access(): MidiAccessLike | null {
+    return this.#access;
+  }
+
+  /**
+   * Every parsed channel message of every input, before it becomes play events (controllers the
+   * play bus ignores included). For MIDI control in; a throwing listener does not stop the others.
+   */
+  onMessage(fn: (e: MidiEvent, inputId: string) => void): () => void {
+    this.#messageListeners.add(fn);
+    return () => {
+      this.#messageListeners.delete(fn);
+    };
+  }
+
+  /** Called with the access when it is granted and after every port change, and with null on disable. */
+  onAccess(fn: (access: MidiAccessLike | null) => void): () => void {
+    this.#accessListeners.add(fn);
+    return () => {
+      this.#accessListeners.delete(fn);
+    };
   }
 
   /** From the `enable midi` click. Inputs only, never SysEx, never outputs. */
@@ -176,10 +207,12 @@ export class MidiInput {
   /** Stops listening and releases what MIDI still holds. */
   disable(): void {
     this.#generation++;
+    const had = this.#access !== null;
     if (this.#access !== null) this.#access.onstatechange = null;
     this.#access = null;
     for (const id of [...this.#ports.keys()]) this.#drop(id);
     this.#dispatch({ type: 'disable' });
+    if (had) this.#announce();
   }
 
   /**
@@ -213,17 +246,35 @@ export class MidiInput {
       if (this.#ports.has(port.id)) return;
       const entry = { port, notes: new Set<number>(), sustain: false };
       this.#ports.set(port.id, entry);
-      // Assigning onmidimessage opens the input port implicitly; outputs are never touched.
-      port.onmidimessage = (ev) => this.#receive(entry, ev);
+      // Assigning onmidimessage opens the input port implicitly; outputs are never touched here.
+      port.onmidimessage = (ev) => this.#receive(port.id, entry, ev);
     });
     for (const id of [...this.#ports.keys()]) if (!seen.has(id)) this.#drop(id);
     this.#dispatch({ type: 'inputs', names });
+    this.#announce();
   }
 
-  #receive(entry: { notes: Set<number>; sustain: boolean }, ev: MidiMessageLike): void {
+  #announce(): void {
+    for (const fn of [...this.#accessListeners]) {
+      try {
+        fn(this.#access);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  }
+
+  #receive(inputId: string, entry: { notes: Set<number>; sustain: boolean }, ev: MidiMessageLike): void {
     if (ev.data === null) return;
     const parsed = parseMidiMessage(ev.data);
     if (parsed === null) return;
+    for (const fn of [...this.#messageListeners]) {
+      try {
+        fn(parsed, inputId);
+      } catch (err) {
+        console.error(err);
+      }
+    }
     for (const e of toPlayEvents(parsed)) {
       if (e.type === 'noteOn') entry.notes.add(e.note);
       else if (e.type === 'noteOff') entry.notes.delete(e.note);

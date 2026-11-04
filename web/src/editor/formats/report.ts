@@ -9,6 +9,7 @@
  * reserved and opaque fields) follow in layout order. No DOM.
  */
 import { CATEGORY_NONE } from '../../ns4/template.ts';
+import { FX_UNIT_TITLES, fxUnitOf } from '../model/curated.ts';
 import { type ParamDescriptor, DESCRIPTORS, formatValue } from '../model/descriptors.ts';
 import { LAYERS, NS4_KEYS, type Ns4Key, type SynthLayer, layerOf } from '../model/keys.ts';
 import type { ValueReader } from '../model/labels.ts';
@@ -45,8 +46,8 @@ function reader(values: Readonly<Record<Ns4Key, number>>): ValueReader {
 function shown(d: ParamDescriptor, value: number, values: ValueReader): { text: string; markers: string[] } {
   const f = formatValue(d, value, values);
   const markers: string[] = [];
-  if (d.status === 'unverified' || f.marker !== null) markers.push(NOT_VERIFIED);
   const option = d.options?.find((o) => o.value === value);
+  if (d.status === 'unverified' || f.marker !== null || option?.status === 'unverified') markers.push(NOT_VERIFIED);
   if (d.status === 'stored' || d.status === 'layout' || option?.status === 'layout') markers.push(NOT_IMPLEMENTED);
   return { text: f.text, markers };
 }
@@ -55,7 +56,10 @@ function line(d: ParamDescriptor, s: ProgramSnapshot, base: ProgramSnapshot): st
   const now = shown(d, s.values[d.key], reader(s.values));
   const was = formatValue(d, base.values[d.key], reader(base.values)).text;
   const value = [now.text, ...now.markers].join(' ');
-  const label = d.label.length >= LABEL_WIDTH - 1 ? `${d.label}  ` : d.label.padEnd(LABEL_WIDTH);
+  // An effects field names its unit ('reverb on', 'mod 1 rate'): a block lists all six units together.
+  const unit = fxUnitOf(d.key);
+  const name = unit === null || d.region === null ? d.label : `${FX_UNIT_TITLES[unit]} ${d.label}`;
+  const label = name.length >= LABEL_WIDTH - 1 ? `${name}  ` : name.padEnd(LABEL_WIDTH);
   const shownValue = value.length >= VALUE_WIDTH - 1 ? `${value}  ` : value.padEnd(VALUE_WIDTH);
   return `  ${label}${shownValue}init ${was}`;
 }

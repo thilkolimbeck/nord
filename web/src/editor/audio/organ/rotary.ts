@@ -12,8 +12,11 @@
  * ramp to 0 Hz and stay where they stop ("Free"). The stop preset and stored angles are not
  * applied. Horn/drum balance 50/50 (the Sound menu default, M p.58). All numbers are guesses.
  */
+import type { Ns4Key } from '../../model/keys.ts';
 import type { ValueReader } from '../../model/labels.ts';
-import { driveLabel, drivePreGain, type MicSpec, micSpec, type Rotor, rotorTargets, rotorTau } from './params.ts';
+import {
+  driveLabel, drivePreGain, type MicSpec, micSpec, type Rotor, ROTOR_SPEEDS, rotorTargets, rotorTau,
+} from './params.ts';
 
 const SMOOTH = 0.01;
 const CENTRE = 0.002;
@@ -32,6 +35,35 @@ export function driveCurve(label: number, n = CURVE_POINTS): Float32Array<ArrayB
     out[i] = label <= 0 ? x : Math.tanh(pre * x) * post;
   }
   return out;
+}
+
+/** A reader that also gives a field's effective value unrounded (model/morph.ts MorphedValues). */
+interface FractionReader extends ValueReader {
+  fraction(key: Ns4Key): number;
+}
+
+function hasFraction(values: ValueReader): values is FractionReader {
+  return typeof (values as Partial<FractionReader>).fraction === 'function';
+}
+
+/**
+ * The rotor speeds with the speed switch's morph (plan section 15.2): the Stage 4's morph on
+ * Rotary Speed reaches "speeds other than just fast, slow or stopped" (M p.53, p.39). The switch's
+ * effective value unrounded (0 slow … 1 fast) interpolates linearly between the slow target (0 Hz
+ * with Stop mode, as rotorTargets) and the fast speed; the curve is a guess (unverified). A reader
+ * without `fraction` (the plain store) and the resting positions 0 and 1 give rotorTargets exactly.
+ */
+export function morphedRotorTargets(values: ValueReader): Readonly<Record<Rotor, number>> {
+  if (!hasFraction(values)) return rotorTargets(values);
+  const raw = values.fraction('organ.effectsLeslieSpeed');
+  const f = Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 0;
+  if (f === 0 || f === 1) return rotorTargets(values);
+  const stop = values.get('organ.effectsLeslieStopMode') !== 0;
+  const at = (rotor: Rotor): number => {
+    const slow = stop ? 0 : ROTOR_SPEEDS[rotor].slow;
+    return slow + (ROTOR_SPEEDS[rotor].fast - slow) * f;
+  };
+  return { horn: at('horn'), drum: at('drum') };
 }
 
 interface Mic {
@@ -145,9 +177,13 @@ export class Rotary {
     return { horn: this.#rotors.horn.target, drum: this.#rotors.drum.target };
   }
 
-  /** Follow the speed and stop switches: ramp each rotor from its current target to the new one. */
+  /**
+   * Follow the speed and stop switches: ramp each rotor from its current target to the new one.
+   * With a morph on the speed switch the reader's fraction sets a speed between slow and fast
+   * (morphedRotorTargets; M p.53; plan section 15.2).
+   */
   updateSpeed(values: ValueReader, t: number, immediate = false): void {
-    const next = rotorTargets(values);
+    const next = morphedRotorTargets(values);
     for (const rotor of ['horn', 'drum'] as const) {
       const r = this.#rotors[rotor];
       if (!immediate && r.target === next[rotor]) continue;

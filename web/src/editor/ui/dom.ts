@@ -37,3 +37,21 @@ export function uid(prefix: string): string {
   counter += 1;
   return `${prefix.replace(/[^A-Za-z0-9_-]/g, '-')}-${counter}`;
 }
+
+/**
+ * A note that keeps the space of its longest text (editor.css .reserve-stack): the shown text and an
+ * invisible sizer holding `longest` share one grid cell, so the note is as tall as the longest text
+ * at the current width whichever text it shows, and the rows below it never move. set('') leaves the
+ * space empty.
+ */
+export function reservedNote(attrs: Attrs, longest: string): { el: HTMLElement; set(text: string): void } {
+  const text = h('span');
+  const sizer = h('span', { 'data-reserved': true, 'aria-hidden': 'true' }, longest);
+  const el = h('p', { ...attrs, class: `${String(attrs['class'] ?? '')} reserve-stack`.trim() }, text, sizer);
+  return {
+    el,
+    set(next: string): void {
+      text.textContent = next;
+    },
+  };
+}

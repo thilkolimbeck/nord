@@ -278,7 +278,7 @@ function rig() {
 test('Router: a routed note-on and its note-off reach only the section that plays', () => {
   const { organ, piano, synth, router, on, off, notes } = rig();
   on(60, 90);
-  assert.deepEqual(synth.events, [{ type: 'noteOn', key: 60, note: 60, velocity: 90, layers: [{ layer: 'A', gain: 1 }] }]);
+  assert.deepEqual(synth.events, [{ type: 'noteOn', key: 60, note: 60, velocity: 90, layers: [{ layer: 'A', gain: 1 }], source: 'midi' }]);
   assert.deepEqual(router.held(), [{ key: 60, note: 60, sections: ['synth'] }]);
   off(60);
   assert.deepEqual(notes(synth), ['on 60>60', 'off 60>60']);

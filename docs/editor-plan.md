@@ -1204,3 +1204,497 @@ Scope (user, 2026-11-04): the synth's arpeggiator and gate, the master clock (wi
 ### 14.4 Tests
 
 `arp.test.ts` (orders, zig zag, range, Poly inversions and chord join, look-ahead, KB sync versus grid, pattern steps, free and clock rates, gate steps, late ticks, rate labels), `clock.test.ts` (BPM to seconds per division, lists, grid, tempo change, keyboard sync off/on/soft and layer rule, tap tempo), `synth-arp.test.ts` (engine with a manual timer: repeating voice starts at the free and clock rates, tempo change, KB sync, Poly, Gate automation and hardness, run on/off hand-over, layer-scoped note offs, master clock reset of arps and LFOs, LFO rate from the clock, panic and load, binding coverage of every field that now sounds), `kb-hold.test.ts`, `groups.test.ts`; updated: descriptors, controls, router (program-region live fields are router keys or clock keys), router-synth (bus → gate → pan) and the report fixture (arp run no longer "not implemented", the tap pedal is).
+
+## 15. Everything else (2026-11-04)
+
+Scope (user, 2026-11-04: "Build everything now"): every item section 13 and 14 left out. 1 layer effects; 2 morph editing and playback; 3 own audio for samples mode; 4 MIDI control in (Appendix II); 5 MIDI out and controlling a connected Stage 4; 6 extern; 7 an AudioWorklet engine; 8 the smaller gaps (delete a saved preset, editable aux keyboard and output routing, global effect switches, clear lines for what still cannot sound).
+
+Guardrails stay: plain TypeScript, no new dependency, `web/src/ns4/**` unchanged in behaviour, the module rules of `imports.test.ts` (audio, midi and input never import ui; audio and midi never import each other or formats), the strict CSP (`script-src 'self'`, no inline code, no `blob:`), no Nord trade dress, no Nord samples, impulse responses or wavetables, `docs/web-design.md` for every visual. Every new control works or is marked; every approximation says so. "M p.N" is the manual (OS v1.6x, Edition N); nothing here is tested on a Stage 4.
+
+### 15.0 Shared code written with this plan (frozen)
+
+The interfaces below exist, compile and are tested (`web/test/editor/shared-*.test.ts`). Builders use them as they are; a change goes through the orchestrator.
+
+| file | what it settles |
+| --- | --- |
+| `model/fx.ts` | the six effects blocks (`organFx`, `pianoAFx`, `pianoBFx`, `synthAFx`, `synthBFx`, `synthCFx`), their 32 fields by unit, `fxKey`, `parseFxKey`, FX focus (`fxFocusBlock`, `fxFocusEntries`), group, global and Layer Effects ON, and the assumed rate and time curves and division lists (`mod1FreeHz`, `ringModHz`, `mod2RateHz`, `delayFreeSeconds`, `MOD1_DIVISIONS`, `DELAY_DIVISIONS`, `fxDivisionOf`) so sound and labels agree |
+| `audio/fx/types.ts` | `FxChain`, `FxChainFactory`, `FxContext`, `GlobalFx`, `GlobalFxFactory`, `FxHooks`, `ClockReader`; `fxChainFor` (the engines' plumbing), `passThroughChain`, `passThroughGlobal`, `inertChain` |
+| `audio/section.ts` | `SectionContext.fx?: FxHooks` (optional); `RoutedNoteOn.source?: NoteSource` (the router fills it) |
+| `audio/engine.ts`, `audio/piano/engine.ts`, `audio/organ/engine.ts` | hook plumbing: one chain per block between a layer's output and the section output (organ: one chain on the organ bus before the direct path and the rotary send); batches, controllers, panic (`silence`) and dispose reach the chains; `OrganEngine.rotaryInput`; `SynthOptions.fx`, `SynthOptions.hooks`, `makeSynthFactory(options)`. Without hooks the graph is the one of section 13 (the existing tests prove it) |
+| `audio/sources.ts`, `audio/voice.ts` | `SourceProvider`, `FilterProvider`, `VoiceHooks`, `buildSource`, `layerSilence`; the voice asks its layer's source providers before oscillators.ts, the engine treats a layer a provider covers as playable |
+| `audio/tee.ts` | `teeSection(engine, sink)`: a second listener on one section's routed events (the extern output) |
+| `audio/mapping.ts` | `coarsePatterns(values, layer, worklet = false)`: no coarse markers while the worklet runs; `silentReason` texts for samples mode and extern updated |
+| `audio/router.ts` | passes `PlayEvent.source` on as `RoutedNoteOn.source` |
+| `audio/worklet/protocol.ts` | processor names, parameter descriptors, processorOptions, port messages, validators, `workletKind`, `supportsAudioWorklet` |
+| `model/morph.ts` | sources, positions, `effectiveValue`, `effectiveFraction`, `morphEnd`, `amountForEnd`, `MorphedValues` (`get`, `fraction`, `move`, `rest`, `expand`) |
+| `model/store.ts` | `Origin` gains `'morph'` (never written to the store; `StoreOrigin` is what `set`/`setMany` accept) |
+| `model/user-samples.ts` | `UserSampleRef`, `LayerSamples`, `SampleInfo`, validation, `SampleAssignments` |
+| `formats/samples-db.ts` | the IndexedDB schema, `SampleStore`, `SampleMeta`, `OpenSampleStore`, limits, problem texts, `EmbeddedSample`, `contentHash` (SHA-256) |
+| `midi/cc-map.ts` | Appendix II as data (146 entries), `resolveTarget`, `scaleIn`, `scaleOut`, `entryForKey`, `NrpnDecoder`, `ccMessage`, `nrpnMessages`, `messagesFor` |
+| `midi/output.ts` | `MidiOutputLike`, `MidiOutSettings`, `DEFAULT_MIDI_OUT` (every switch off), `mayEmit` (the one send gate), `MidiOutApi`, `MidiOutStatus` |
+| `midi/access.ts` | `MidiInput.onMessage` (every parsed message, for control in), `MidiInput.access` and `onAccess` (for the output); still `sysex: false`, still sends nothing |
+| `env.d.ts` | the `*?worker&url` module type |
+
+Stubs whose bodies belong to a builder (export names and signatures fixed, so main and the UI compile before the builders finish; "STUB (plan 15.12)" in the file): `audio/fx/chain.ts` `fxChainFactory`, `audio/fx/global.ts` `globalFxFactory` (B1); `midi/cc-in.ts` `MidiControlIn`, `input/controllers.ts` `ScreenControllers` (B2); `audio/samples/provider.ts` `SampleSources`, `audio/samples/decode.ts` `decodeSample`, `formats/samples-db.ts` `openSampleStore`, `formats/preset.ts` `toPresetJsonWith`, `readPresetExtras` (B3); `midi/send.ts` `MidiOut`, `midi/extern.ts` `ExternOut` (B4); `audio/worklet/engine.ts` `createWorkletVoices`, `audio/worklet/processor.ts`, `audio/worklet/module-url.ts` (B5).
+
+The signal flow after this section:
+
+```
+synth layer:  voices ─► xfade ─► level bus ─► gate ─► pan ─► FxChain(synth{L}Fx) ─┬─► output ─────────┐
+piano layer:  voices ─► timbre ─► level ──────────────────► FxChain(piano{L}Fx) ─┤                    │
+                                                                                 └─► rotarySend ─┐     │
+organ:        layers (level) ─► organ bus ─► FxChain(organFx) ─┬─► direct ────────────────────────┼─────┤
+                                                               └─► send ─► rotary (organ engine) ◄┘     │
+                                                                           rotary out ────────────────┤
+                                                    GlobalFx.input ◄──────────────────────────────────┘
+GlobalFx (delay, compressor, reverb in Global mode) ─► MasterBus (−12 dB, limiter) ─► destination
+every engine, every chain and GlobalFx read the store through MorphedValues (effective values)
+```
+
+### 15.1 Layer effects (builder B1)
+
+#### Fields
+
+The same 32 fields in each of the six blocks (M p.48–53; tables from `display-ns4.ts`). "Status" is the status after this work.
+
+| field | range | table / labels | status | model (M) |
+| --- | --- | --- | --- | --- |
+| `fx1Enable` | 0..1 | 705-1 off/on | live | Mod 1 on (p.49) |
+| `fx1Type` | 0..11 | 713-1 A-PAN, TREM, RM, A-WAH, WAH, PUMP, each with "variation" | unverified | the six types; the odd values are the variation or PED function (p.49) |
+| `fx1RateClkDiv` | 0..127 | none | unverified | free: `mod1FreeHz` 0.1–10 Hz; RM: `ringModHz` 20 Hz–2 kHz; A-WAH: sensitivity 0–1; with Mst Clk a `MOD1_DIVISIONS` step (p.49) |
+| `fx1ClkEnable` | 0..1 | 705-2 off/on | live | Mst Clk for A-Pan, Trem, Wah, Pump (p.49); no effect on RM and A-Wah |
+| `fx1Amt` | 0..127 | 709-2 0.0–10.0 | unverified | depth or dry/wet, 0–1 (p.49) |
+| `fx2Enable` | 0..1 | 713-5 off/on | live | Mod 2 on (p.50) |
+| `fx2Type` | 0..11 | 721-4 PHAS, FLANG, CHOR, VIBE, ENS, SPIN, each with variation | unverified | p.50 |
+| `fx2Rate` | 0..127 | 713-6 0.0–10.0 | unverified | `mod2RateHz` 0.05–10 Hz |
+| `fx2Amt` | 0..127 | 717-5 0.0–10.0 | unverified | depth, feedback, colour per type (p.50) |
+| `dlyEnable` | 0..1 | 734-1 off/on | live | p.50 |
+| `dlyRateClkDiv` | 0..16383 | none | unverified | free: `delayFreeSeconds` 10 ms–2.5 s (larger = longer, assumed); with Mst Clk a `DELAY_DIVISIONS` step, 1/32 … 1/2 with T, D, S (p.51) |
+| `dlyClkEnable` | 0..1 | 734-2 off/on | live | p.51 |
+| `dlyMix` | 0..127 | 741-6 0.0–10.0 | unverified | dry/wet, equal power (p.50) |
+| `dlyFbkAmt` | 0..127 | 746-1 0.0–10.0 | unverified | feedback 0 … 0.95 (p.50: lowest = one tap, highest = very long tail) |
+| `dlyMode` | 0..1 | 745-5 normal/analog | unverified | analog: tempo changes glide (pitch), soft saturation in the loop, slightly different filters (p.51) |
+| `dlyFbkPingPong` | 0..1 | 745-6 off/on | live | repeats alternate left and right (p.50) |
+| `dlyFbkFilt` | 0..3 | 745-7 none, LP, HP, BP | unverified | a filter in the loop (p.51); LP 2.5 kHz, HP 400 Hz, BP 900 Hz Q 1 |
+| `dlyFbFxType` | 0..11 | 749-8 none, ENS, VIBE, CHOR, FLAM, SPACE (+ variations) | unverified | effects in the loop (p.50–51): ENS/VIBE/CHOR are the Mod 2 models; FLAM offsets L/R by 20 ms (variation 40 ms); SPACE diffuses (all-pass), mixed 50 %, variation 100 % |
+| `ampEnable` | 0..1 | 721-8 off/on | live | p.51 |
+| `ampTypeNew` | 0..9 | 755-6 off, TWIN, JC, SMALL (each with variation), TO ROTARY, LP FILTER, HP FILTER | unverified (TO ROTARY live) | p.51–52 |
+| `ampDrive` | 0..127 | 728-5 0.0–10.0 | unverified | tube-style overdrive, or the amp model's drive (p.51) |
+| `ampBass` | −60..60 | 723-7 ±15.0 dB | live | low shelf 100 Hz (p.51) |
+| `ampMid` | −60..60 | none | unverified | peaking at `ampMidFreq`, ±15 dB assumed like bass and treble; the LP/HP filters' resonance (assumed: the manual's RES knob, p.52) |
+| `ampMidFreq` | 0..127 | 724-6 200 Hz–8 kHz | live | mid frequency; the LP/HP filters' cutoff (p.39 morph list: "EQ Mid / Filter Freq") |
+| `ampTreble` | −60..60 | 722-1 ±15.0 dB | live | high shelf 4 kHz (p.51) |
+| `cmpEnable` | 0..1 | 732-8 off/on | live | p.52 |
+| `cmpAmt` | 0..127 | 733-1 0.0–10.0 | unverified | amount (p.52) |
+| `cmpResponse` | 0..1 | 733-8 normal/fast | unverified | fast recovers sooner (p.52) |
+| `rvbEnable` | 0..1 | 750-4 off/on | live | p.52 |
+| `rvbType` | 0..11 | 754-6 SPRING, BOOTH, ROOM, STAGE, HALL, CATH (+ variation or chorale) | unverified | generated impulse responses (p.52) |
+| `rvbAmt` | 0..127 | 750-5 0.0–10.0 | unverified | dry/wet; fully wet at the maximum (p.52) |
+| `rvbColor` | 0..2 | 754-4 none, DARK, BRIGHT | unverified | p.53 |
+
+Effects-wide fields (`model/fx.ts`):
+
+| field | range | status | meaning (M) |
+| --- | --- | --- | --- |
+| `common.fxEnable` | 0..1 off/on | live | Layer Effects ON: every layer effect and every global unit; the rotary is not a layer effect and keeps playing (p.48, assumed) |
+| `common.fxSectionFocus` | 0..2 | unverified | FX focus section: 0 organ, 1 piano, 2 synth (panel order, assumed); no sound, selects the block the region edits and the global units' settings (p.48) |
+| `piano.fxLayerFocusPno`, `synth.fxLayerFocusSyn` | 0..1, 0..2 | live | the focused layer within the section (A, B, C); no sound |
+| `piano.effectsSectionModePno`, `synth.effectsSectionModeSyn` | 0..1 | unverified | group mode: 1 = group (layout default), 0 = per layer (Nord Sound Manager writes 0 for converted Stage 3 programs; the converter's `PER_LAYER_FX`) (p.48) |
+| `common.effectsDlyGlobal`, `effectsCmpGlobal`, `effectsRvbGlobal` | 0..1 | unverified | Global mode of delay, compressor, reverb (p.48, 52) |
+
+#### Sound model
+
+- **Chain** (per block, `audio/fx/chain.ts`): Mod 1 → Mod 2 → Delay → Amp Sim/EQ → Compressor → Reverb, the order of the manual's chapter (assumed; the manual says only that the rotary comes after every effect, p.52–53). A unit whose Enable is off passes the signal through (20 ms crossfade, no click); a disabled delay or reverb lets its tail fall silent within 20 ms. Nodes of a unit are built the first time it is switched on and kept until dispose, so six idle blocks cost six gain nodes. Every chain is stereo in and out.
+- **Where the chain sits**: after the layer level (organ: after both layers' levels, the shared bus), so drive and compressor see the level fader. On the Stage 4 the global reverb sits "after … the volume level fader of each Layer" (p.52), which suggests the layer effects come before it; after the level is the simpler graph and differs only for drive and compressor (unverified).
+- **Mod 1** (p.49), one LFO per chain (`OscillatorNode` or a looped shape buffer), rate free or synced:
+  - A-Pan: `StereoPannerNode.pan` = amount × sine; variation: harder shape (sine through a tanh, ×3).
+  - Trem: gain = 1 − amount × (0.5 + 0.5 × LFO), so amount 0 is full level (p.49); variation: square.
+  - RM: wet = input × sine at `ringModHz`, dry/wet by amount; variation: right channel's sine 90° shifted (stereo).
+  - A-Wah: an envelope follower (rectifier `WaveShaper`, low-pass 15 Hz) drives a resonant band-pass (Q 5) from 350 Hz up to 350 Hz × 2^(4 × sens) on its `detune`; amount = dry/wet; variation: a resonant low-pass (Q 8) instead.
+  - Wah: an LFO sweeps a resonant low-pass (Q 6) 400 Hz–2.5 kHz; amount = dry/wet. Variation = PED: the position comes from the control pedal (CC11 or the on-screen pedal) once it has moved since the program loaded; before that the rate sets a static position (p.49: "With no expression pedal connected the Rate knob controls the static position").
+  - Pump: a duck curve per LFO cycle (gain falls to 1 − amount within 5 ms, recovers over 80 % of the cycle); Mst Clk 1/4 is the usual setting (p.49). Variation = PED: a duck each time the control pedal rises through 64 (assumed; the Stage 4 uses a switch pedal, p.49). CC87 (Mod 1 Pump Pedal) is not mapped.
+- **Mod 2** (p.50): Phaser: 4 all-pass biquads swept 300 Hz–3 kHz, feedback 0 … 0.7 by amount (the Small Stone has zero feedback at the minimum); variation (Bi-Phase): 6 stages, two LFOs a quarter cycle apart. Flanger: a delay of 0.5–5 ms swept, feedback 0.75, amount = sweep depth (at 0 "a set of static resonant peaks"); variation mono. Vibe: 4 all-pass stages with staggered centre frequencies (Uni-Vibe-like), dry + wet; variation mono. Chorus: two modulated delays (7 and 11 ms, LFOs 90° apart, depth by amount), a third (15 ms) fades in above amount 5.0 (p.50: "above 50 %"); variation: one delay, deeper and faster (vibrato-like at high settings). Ensemble: three delays (5, 7, 9 ms) cross-fed, LFOs 120° apart; variation mono. Spin: one rotor, crossover 800 Hz, AM 0.3 and ±0.3 ms Doppler on the highs; rate changes ramp (τ 0.7 s); variation: on the lows. The delay feedback paths need a `DelayNode` in every cycle (Web Audio rule): the phaser's feedback has at least one render quantum (128 samples) of delay, which colours it (approximation).
+- **Delay** (p.50–51): two `DelayNode`s (left, right, maximum 2.6 s), feedback gain, the loop filter and the loop effect inside the cycle; ping pong cross-feeds L↔R with the input on the left. Mst Clk: `fxDivisionSeconds(bpm, division)`; swing (S) divisions alternate taps of 2/3 and 1/3 of two steps (two lines in series, approximated). Normal mode: a tempo change crossfades two delay lines over 30 ms (no pitch change; p.50 "Tapping will never result in a pitch change"); analog mode: `delayTime.setTargetAtTime` (τ 0.15 s) so repeats bend in pitch, and a tanh (pre-gain 1.5) in the loop. Tempo comes from `common.masterClockRate` (or the `ClockReader`); a tempo change re-times synced delays at once.
+- **Amp Sim/EQ** (p.51–52): drive is an asymmetric tanh `WaveShaper` (4× oversampled), pre-gain 1 + 2 × label (label 0.0–10.0), output compensated. Amp models are fixed EQ curves after the drive (invented): Twin: high-pass 70 Hz, peaking −4 dB @ 500 Hz, high shelf +6 dB @ 3 kHz; variation: high shelf +2 dB, peaking +2 dB @ 1.2 kHz. JC: high shelf +5 dB @ 4 kHz; variation: high shelf +1 dB, peaking +2 dB @ 900 Hz. Small (Wurlitzer 200A speaker): band-pass 150 Hz–4.5 kHz, peaking +4 dB @ 1.2 kHz; variation: 250 Hz–3 kHz. Models drive harder: pre-gain × 1.5. Off and TO ROTARY: "a neutral EQ and tube style overdrive" (p.51). LP/HP filter: two biquads (24 dB/oct), cutoff = `ampMidFreq` label, Q from `ampMid` (−60…60 → 0.7…12, exponential); bass, treble and drive stay, the mid band is off (p.52). TO ROTARY: the chain's output goes silent and its `rotarySend` carries the signal to the organ engine's rotary (p.52–53; the rotary's speed and drive are the organ's, p.48).
+- **Compressor** (p.52): `DynamicsCompressorNode`, attack 3 ms, knee 6 dB; amount label a: threshold −4a dB, ratio 1.5 + 0.65a, make-up gain +0.6a dB; release 250 ms, fast 60 ms.
+- **Reverb** (p.52–53): a `ConvolverNode` with a generated stereo impulse response (`audio/fx/impulse.ts`, pure, seeded noise with an exponential decay, decorrelated left and right, a short early-reflection pattern for the smaller rooms), cached per context and type, built on first use. Decay to −60 dB and pre-delay: Spring 2.0 s plus a dispersive chirp (a few all-pass "drip" resonances), variation 3.0 s and a different chirp; Booth 0.3 s, variation pre-delay 25 ms; Room 0.8 s, variation pre-delay 35 ms; Stage 1.6 s; Hall 2.8 s; Cathedral 5.5 s; the chorale variations of Stage, Hall and Cathedral add a slowly modulated delay (±0.3 %) on the wet path. Colour: dark = low-pass 3 kHz on the wet path; bright = low shelf −3 dB @ 250 Hz and high shelf +3 dB @ 5 kHz (p.53). Amount: equal-power dry/wet, fully wet at 10.0 (p.52). No Nord impulse response is used or imitated.
+- **Global mode** (`audio/fx/global.ts`, p.48, 52): with a global switch on, every chain bypasses that unit and one instance of it processes the sum of every section (after the rotary and the levels), with the settings of the FX focus block (`fxFocusBlock`); with it off the sum passes through. Global units run in the order delay → compressor → reverb. Store rule (B6, `model/actions.ts`): switching Global off copies the focus block's settings of that unit to the other five blocks (p.48: "When turning Global mode off all Layers will share the same settings").
+- **Group mode** (p.48): the store's job, like the synth groups (14.2.12). Switching group on copies the focused layer's block to the section's other blocks (derived); while on, an edit of one block writes every block of the section (`model/actions.ts`, B6); switching off keeps the values. The engine plays each layer's own block; a loaded program with group on but unequal blocks plays its stored values.
+- **FX focus** (p.48): "automatically follows the focus of Layer buttons": a layer focus key in the organ, piano or synth region also sets the FX focus to that layer's block (derived, B6). The region's own focus keys set it directly.
+- **Morphs**: the chains read `FxContext.values` (the morphed values), so Mod 1 rate and amount, Mod 2 rate and amount, delay tempo, feedback and dry/wet, EQ mid / filter frequency, drive and reverb dry/wet move with their morphs (p.39; `fx2Rate` has morph fields although p.39 does not list it).
+- **Panic and load**: `silence()` cuts every tail within ≈ 10 ms; a load batch re-reads every field.
+- **Bindings**: `audio/fx/bindings.ts` lists every field of a block and the effects-wide fields with what it changes (as `audio/bindings.ts` does for the synth); a coverage test (B1) requires a binding for every `live` and `unverified` effects-region descriptor, one way only (a binding for a field still `layout` is allowed), so it passes before and after B6 flips the statuses.
+
+### 15.2 Morphs (builders B2, B6)
+
+#### Fields
+
+119 fields carry three morph amounts each (`.morphWheel`, `.morphAfterTouch`, `.morphCtrlPedal`; 357 fields, `MORPH_PARENTS`):
+
+| fields | amount range |
+| --- | --- |
+| layer levels: `organ.layerLevelOrg{A,B}`, `piano.layerLevelPno{A,B}`, `synth.layerLevelSyn{A,B,C}` | −127..127 |
+| organ drawbars `organ{A,B}Drawbars.org_Preset_kDb1…9` | −8..8 |
+| `organ.effectsLeslieSpeed` (a switch) | −1..1 |
+| synth per layer: `oscCtrl`, `lfoRateClkDiv`, `lfoAmt`, `fltFreq`, `fltRes`, `fltEnvAmt`, `arpRange`, `arpRateClkDiv`, `externCCValue1`, `externCCValue2` | −127..127 |
+| synth per layer: `oscEnvAmt` (field −60..60) | −120..120 |
+| every effects block: `fx1RateClkDiv`, `fx1Amt`, `fx2Rate`, `fx2Amt`, `ampMidFreq`, `ampDrive`, `dlyMix`, `dlyFbkAmt`, `rvbAmt` | −127..127 |
+| every effects block: `dlyRateClkDiv` | −16383..16383 |
+
+The manual's destination list (p.39) is a subset: the layout adds `oscEnvAmt`, `fltEnvAmt`, `arpRange`, `fx2Rate` and the extern CC values; the editor plays them all.
+
+#### Model
+
+- Effective value (`model/morph.ts`): `clamp(round(base + Σ amount × position), field min, field max)`; position 0..1 per source: wheel = CC1/127 or the on-screen wheel, aftertouch = channel pressure/127 or the on-screen pressure strip, control pedal = CC11/127 (p.56) or the on-screen pedal. The amount is a signed delta in the field's stored steps, assumed and unverified: every amount shows `nv`. At rest every field plays its stored value.
+- The organ rotary speed reads `MorphedValues.fraction`: base 0/1 plus amount × position, continuous between slow and fast (p.53: "speeds other than just fast, slow or stopped"). B2 changes the rotary to set rotor targets by interpolating slow and fast speeds by that fraction (delimited edit in `audio/organ/rotary.ts`, `updateSpeed`).
+- Drawbar morphs step through 0–8 (rounded), as drawbar LEDs do (p.39). Morphs always apply: Drawbar Live is not modelled (p.39 "morphs are not applicable in Drawbar Live mode").
+- Wiring (B6, `main.ts`): one `MorphedValues` over the store for the page; every engine, chain, the global units and the extern output get it as their `values`; `store.onChange(batch => router.applyChanges(morphed.expand(batch)))`; a `controller` play event also calls `morphed.move(SOURCE_OF_CONTROLLER[kind], positionOf(value))` and hands the returned `'morph'` changes to the router, the global units and the extern output; panic calls `morphed.rest()` the same way (p.56: panic "reset incoming CC messages"). A load keeps the positions. `'morph'` changes never reach the store, the display's "edited" count or the MIDI output's controls.
+- The display shows the morph's end point while an amount is edited: `morphEnd` formatted with `formatValue` ("cutoff 1.2 kHz → 4.8 kHz"), as the Stage 4 display shows start and stop values (p.38).
+- Vibrato modes WHL, A.T., PED keep using the same controllers (unchanged).
+- The wheel morph mirrored by an organ swell pedal (p.38) and the Triple Pedal's "Control" setting (p.38, 60) have no source in the editor: not modelled.
+- Status after: the 357 amount fields become `unverified` with the note "signed delta in stored steps, assumed; how the Stage 4 scales it is unverified" (B6, `model/curated.ts`/`descriptors.ts`). They stay in `HIDDEN` (no own place in a region) and are edited through their parent's morph editor (15.9).
+
+#### On-screen controllers and MIDI
+
+`input/controllers.ts` (B2): `ScreenControllers` keeps wheel, pressure and pedal (0..127) and emits `{ type: 'controller', kind, value }` on the play bus when the user moves one; pressure springs back to 0 on release (pointer up, key up, blur); the wheel and the pedal stay. `attach(bus)` mirrors incoming MIDI controller values onto the strip and returns every control to 0 on panic. MIDI CC1, channel pressure and CC11 already reach the bus (`midi/parser.ts`). With "send notes" on (15.5) the on-screen controllers also go out.
+
+### 15.3 Own samples in samples mode (builder B3)
+
+#### Fields
+
+| field | status after | meaning |
+| --- | --- | --- |
+| `synth{L}.mode` | live; option samples: unverified, "own samples only (imported on this device); nord samples are not available, so a layer without an own sample stays silent" | samples or analog (M p.28) |
+| `synth{L}Sound.smpDynamic` | unverified, "acts on an own sample in samples mode; an approximation of the option (M p.28)" | NATURAL, NO DYN, NO DYN & FAST ATK, FAST ATK (table 575-6) |
+| `synth{L}Sound.smpTimbre` | unverified, same note | Bright off/on (604-3) |
+| `synth{L}.libName`, `smpId`, `smpNameHash` | hidden, stored | the Nord sample the program names; never changed by an assignment |
+
+The assignment (which own sample a layer plays, its root, loop) is not a Stage 4 field: it lives in `SampleAssignments` (`model/user-samples.ts`) and in the app preset, never in the `.ns4p` (the export notes "own samples are not part of a .ns4p; the stage 4 keeps its own sample fields").
+
+The status flips of `mode`, `smpDynamic` and `smpTimbre` and the two bindings (`'synth{L}Sound.smpDynamic'` and `'synth{L}Sound.smpTimbre'`: effect `source`, live, voice) land together in B6's change, because `bindings.test.ts` refuses a binding for a stored field and requires one for an unverified field (B6 owns `audio/bindings.ts` for these two lines only).
+
+#### Sound model (`audio/samples/provider.ts`, a `SourceProvider`)
+
+- `covers(values, layer)`: samples mode and a sample with a decoded buffer assigned. Then the engine starts voices on the layer (`layerSilence`), and `build(req)` answers for `req.spec` silent with a sample graph; for every other spec it returns null.
+- Graph per voice: an `AudioBufferSourceNode` (per unison copy, detuned and panned like the oscillators), its `detune` fed by the voice's pitch source with an offset of −(root − 69) × 100 cents, so the root note plays the file at its own pitch and the coarse, fine, octave shift, bend, glide, vibrato, LFO and osc envelope pitch modulation apply as they do to an oscillator. Where `detune` on a buffer source is missing, `playbackRate` is set once at note-on (no pitch modulation; noted in the code).
+- Loop: one-shot plays the buffer once (`loop = false`; the voice still ends with its amp envelope or the buffer's end, whichever comes first, through `onEnded`); loop repeats `loopStart`..`loopEnd` (0 = the end of the file).
+- `smpDynamic` (M p.28; an own sample has no built-in dynamics, so the editor supplies a simple one): NATURAL: level × (0.35 + 0.65 × (velocity/127)²) and a low-pass from 2 kHz at velocity 1 opening to 20 kHz at 127; NO DYN: neither; FAST ATK: playback starts at `SampleInfo.attackEnd` (computed at decode: where the level first reaches −6 dB of the peak), with NATURAL dynamics; NO DYN & FAST ATK: both. All approximations.
+- `smpTimbre` Bright: a high shelf +6 dB @ 4 kHz in the sample graph.
+- The rest of the voice (filter, amp envelope, LFO, effects) is the synth's, as the Stage 4 plays samples through the synth (p.28). Sample presets (p.28: amp envelope, filter off, LFO off at load) are Nord content: not applied.
+- Decoding (`audio/samples/decode.ts`): `decodeAudioData` on an `OfflineAudioContext(1, 1, 44100)` (no user gesture needed; the decoded buffer has the file's own rate), refuses over `MAX_SAMPLE_SECONDS` (60 s) and returns `SampleInfo`. main hands the buffer to `SampleSources.setBuffer` and, at audio start, re-decodes the assigned samples for the running context.
+
+#### Storage (`formats/samples-db.ts`, IndexedDB)
+
+- Database `ns4-editor-samples` version 1; object stores `meta` (keyPath `hash`, `SampleMeta`) and `data` (keyPath `hash`, `{ hash, bytes }`): listing never loads audio. `put` writes both in one transaction and is idempotent by hash; `delete` removes both; `usage` sums the sizes and adds `navigator.storage.estimate()` when main passes it.
+- The original file bytes are stored (not the decoded floats): smaller, and the hash stays the file's. `contentHash` = SHA-256 → `sha256-<64 hex>`.
+- Limits: 32 MB per file (`MAX_SAMPLE_BYTES`), 60 s decoded. Errors are `SampleStoreError` with a problem kind and a print-out text (`SAMPLE_PROBLEM_TEXT`): unavailable (private mode, blocked IndexedDB), blocked (another tab upgrading), quota, too large, too long, not audio, corrupt.
+- Never uploaded: the page makes no network requests (`imports.test.ts`); the bytes leave the device only inside an app preset the user downloads with "embed own samples" on.
+
+#### Presets
+
+- App preset (schema 1 unchanged; older editors ignore unknown top-level members): `userSamples`: `{ "A": { hash, name, root, loop, loopStart, loopEnd }, … }`, written whenever a layer has an assignment (browser slots and the working copy included); `embeddedSamples`: `{ "<hash>": { name, mime, bytesBase64 } }`, only in a download with "embed own samples" on. `toPresetJsonWith` and `readPresetExtras` (B3, `formats/preset.ts`); `readPreset` accepts up to `MAX_PRESET_WITH_SAMPLES_BYTES` (48 MB) when the text has `embeddedSamples`, else the 1 MB limit stays; every embedded file's hash is checked against its bytes (a mismatch drops it with a note).
+- Loading a preset: assignments load with the program; embedded files are stored on this device (`put`) and the print-out says so ("2 own samples stored on this device"); an assignment whose hash is neither stored nor embedded leaves its layer silent with a note: "layer b: own sample "pad.wav" is not on this device: import the file again or load the preset that embeds it".
+- Deleting a sample that a layer of the current program uses: the layer falls silent with the same note.
+
+### 15.4 MIDI control in (builder B2)
+
+- Switch "midi control in" (default off, stored on this device) and a channel setting (every channel, or 1–16; default every channel). Off: controller messages do nothing beyond what the play bus already does (CC1, CC11, CC64, CC120, CC123, pressure, bend).
+- `midi/cc-in.ts` subscribes to `MidiInput.onMessage`; per message: controllers 99, 98, 6, 38 go to `NrpnDecoder`; a complete NRPN looks up `nrpnEntry(msb, lsb)`, a plain CC `ccEntry(n)`; entries with target `none` and the play bus's controllers (`PLAY_BUS_CCS`) are ignored. `resolveTarget` gives the field (focused layer, FX focus block, organ vibrato type by model), `scaleIn` the value; the write goes through `setSynthParam` (groups propagate) with origin `'midi'`, one store batch per message. `onEdit` tells the display which field moved.
+- Layer addressing (assumption, nv): the Stage 4 sends panel moves on the Global channel for the layer in focus, so a layer-parametric controller addresses the focused layer of its section in the active scene; the focus controllers themselves (CC 82/83, 109/112, 115/119, 31) move the focus first, so a recorded stream replays onto the right layers. The per-layer MIDI channels of the Stage 4 (p.61–62, "Layer MIDI control") are not modelled: incoming notes stay omni and every controller addresses the focus.
+- Scaling (nv): `identity` for 0..127 fields; `linear` spreads 0..127 over any other range (pan −60..60: 0 → −60, 64 → 0, 127 → 60; drawbars 0..8; tune; delay tempo 0..16383); `switch` for two-valued fields on a plain CC (≥ 64 = on); `index` for NRPN values and for focus, layer mask and FX focus CCs (the stored value). The manual gives no scaling and no NRPN value tables (feasibility 5.1).
+- Not mapped (target `none`, the reason in `cc-map.ts`): bank select (0, 32), volume (7), the pedals (64, 66, 67, 11), section edit (118), the piano model (2:33), synth vibrato pedal (15), sample category/sample (3:4:x:x), synth waveform (3:2), Mod 1 pump pedal (87). The manual's row "Organ Preset 16-24" names the drawbar controllers again; the editor maps CC 16–24 to the stored drawbars and lists no separate entry.
+- Counts: 95 plain CCs and 51 NRPNs (2:32-34 counted as three), 133 mapped. (The feasibility doc's "39 CC" for the synth section counts one more than the manual's synth rows, 38.)
+
+The whole list (`APPENDIX_II`, generated from the data; `{L}` = the focused layer of the section, `{FX}` = the FX focus block):
+
+| parameter (M p.68–69) | CC or NRPN | field | scaling |
+| --- | --- | --- | --- |
+| Bank Select MSB | 0 | – program selection: the editor loads programs from files, not by number | – |
+| Bank Select LSB | 32 | – program selection: the editor loads programs from files, not by number | – |
+| Volume (Global) | 7 | – the master level is not part of a program (p.38) | – |
+| Sustain Pedal | 64 | – a performance control, not program data: the sustain pedal (play bus) | – |
+| Sostenuto Pedal | 66 | – a performance control, not program data: not modelled | – |
+| Soft Pedal | 67 | – a performance control, not program data: not modelled | – |
+| Ctrl Pedal (Expression) | 11 | – a performance control, not program data: the control pedal, a morph source (play bus) | – |
+| Layer Scene | 8 | `common.layerScene` | switch |
+| Section FX Focus | 31 | `common.fxSectionFocus` | index |
+| Section Edit | 118 | – a panel mode, not program data | – |
+| Organ A Level | 13 | `organ.layerLevelOrgA` | identity |
+| Organ B Level | 14 | `organ.layerLevelOrgB` | identity |
+| Organ Section Enable Scene I | 9 | `common.sectionEnableOrg_I` | switch |
+| Organ Section Enable Scene II | 2 | `common.sectionEnableOrg_II` | switch |
+| Organ Layers Enable Scene I | 80 | `organ.layerEnableOrg_I` | index |
+| Organ Layers Enable Scene II | 81 | `organ.layerEnableOrg_II` | index |
+| Organ Layers Focus Scene I | 82 | `organ.layerFocusOrg_I` | index |
+| Organ Layers Focus Scene II | 83 | `organ.layerFocusOrg_II` | index |
+| Organ Octave Shift | 12 | `organ{L}.octaveShift` (focused organ layer) | linear |
+| Organ Model | 2:16 | `organ{L}.model` (focused organ layer) | index |
+| Organ Drawbar 1 | 16 | `organ{L}Drawbars.org_Preset_kDb1` (focused organ layer) | linear |
+| Organ Drawbar 2 | 17 | `organ{L}Drawbars.org_Preset_kDb2` (focused organ layer) | linear |
+| Organ Drawbar 3 | 18 | `organ{L}Drawbars.org_Preset_kDb3` (focused organ layer) | linear |
+| Organ Drawbar 4 | 19 | `organ{L}Drawbars.org_Preset_kDb4` (focused organ layer) | linear |
+| Organ Drawbar 5 | 20 | `organ{L}Drawbars.org_Preset_kDb5` (focused organ layer) | linear |
+| Organ Drawbar 6 | 21 | `organ{L}Drawbars.org_Preset_kDb6` (focused organ layer) | linear |
+| Organ Drawbar 7 | 22 | `organ{L}Drawbars.org_Preset_kDb7` (focused organ layer) | linear |
+| Organ Drawbar 8 | 23 | `organ{L}Drawbars.org_Preset_kDb8` (focused organ layer) | linear |
+| Organ Drawbar 9 | 24 | `organ{L}Drawbars.org_Preset_kDb9` (focused organ layer) | linear |
+| Organ Percussion Enable | 2:18 | `organ{L}VibPerc.org_Preset_kB3PercEnable` (focused organ layer) | index |
+| Organ Vibrato Type | 2:19 | `organ.vibratoType{B3,Vox,Farfisa}` by the focused organ layer's model | index |
+| Organ Vibrato Enable | 2:20 | `organ{L}VibPerc.org_Preset_kVibratoEnable` (focused organ layer) | index |
+| Organ Percussion Harmonic | 2:21 | `organ{L}VibPerc.org_Preset_kB3PercHarmonic` (focused organ layer) | index |
+| Organ Percussion Speed | 2:22 | `organ{L}VibPerc.org_Preset_kB3PercSpeed` (focused organ layer) | index |
+| Organ Percussion Level | 2:23 | `organ{L}VibPerc.org_Preset_kB3PercLevel` (focused organ layer) | index |
+| Piano A Level | 34 | `piano.layerLevelPnoA` | identity |
+| Piano B Level | 63 | `piano.layerLevelPnoB` | identity |
+| Piano Section Enable Scene I | 33 | `common.sectionEnablePno_I` | switch |
+| Piano Section Enable Scene II | 3 | `common.sectionEnablePno_II` | switch |
+| Piano Layers Enable Scene I | 72 | `piano.layerEnablePno_I` | index |
+| Piano Layers Enable Scene II | 88 | `piano.layerEnablePno_II` | index |
+| Piano Layers Focus Scene I | 109 | `piano.layerFocusPno_I` | index |
+| Piano Layers Focus Scene II | 112 | `piano.layerFocusPno_II` | index |
+| Piano Octave Shift | 35 | `piano{L}.octaveShift` (focused piano layer) | linear |
+| Piano Type/Model/Variation (type) | 2:32 | `piano{L}.bank` (focused piano layer) | index |
+| Piano Type/Model/Variation (model) | 2:33 | – the value encoding of a piano model is not documented (models are 32-bit name hashes) | – |
+| Piano Type/Model/Variation (variation) | 2:34 | `piano{L}.variation` (focused piano layer) | index |
+| Piano Unison | 2:40 | `piano{L}.unison` (focused piano layer) | index |
+| Piano Timbre | 2:41 | `piano{L}.eq` (focused piano layer) | index |
+| Piano Dyn Comp | 2:42 | `piano{L}.dynComp` (focused piano layer) | index |
+| Piano KB Touch | 2:43 | `piano{L}.kbdTouch` (focused piano layer) | index |
+| Piano Acoustics | 2:44 | `piano{L}.acoustic` (focused piano layer) | index |
+| Synth A Level | 43 | `synth.layerLevelSynA` | identity |
+| Synth B Level | 37 | `synth.layerLevelSynB` | identity |
+| Synth C Level | 39 | `synth.layerLevelSynC` | identity |
+| Synth A Pan | 40 | `synth.layerPanSynA` | linear |
+| Synth B Pan | 41 | `synth.layerPanSynB` | linear |
+| Synth C Pan | 36 | `synth.layerPanSynC` | linear |
+| Synth Section Enable Scene I | 42 | `common.sectionEnableSyn_I` | switch |
+| Synth Section Enable Scene II | 5 | `common.sectionEnableSyn_II` | switch |
+| Synth Layers Enable Scene I | 61 | `synth.layerEnableSyn_I` | index |
+| Synth Layers Enable Scene II | 75 | `synth.layerEnableSyn_II` | index |
+| Synth Layers Focus Scene I | 115 | `synth.layerFocusSyn_I` | index |
+| Synth Layers Focus Scene II | 119 | `synth.layerFocusSyn_II` | index |
+| Synth Octave Shift | 44 | `synth{L}.octaveShift` (focused synth layer) | linear |
+| Synth Glide Rate | 48 | `synth{L}.glideRate` (focused synth layer) | identity |
+| Synth Voice Mode | 3:16 | `synth{L}.voiceMode` (focused synth layer) | index |
+| Synth Voice Priority | 3:17 | `synth{L}.voicePrio` (focused synth layer) | index |
+| Synth Vibrato Mode | 3:19 | `synth{L}.vibMode` (focused synth layer) | index |
+| Synth Vibrato Dly Time | 3:20 | `synth{L}.vibDly` (focused synth layer) | index |
+| Synth Vibrato Amount | 45 | `synth{L}Sound.vibAmt` (focused synth layer) | linear |
+| Synth Vibrato Rate | 46 | `synth{L}Sound.vibRate` (focused synth layer) | identity |
+| Synth Vibrato Pedal | 15 | – a performance control, not program data: the vibrato pedal; PED vibrato follows the control pedal | – |
+| Synth Osc Envelope Attack | 52 | `synth{L}Sound.oscEnvAtk` (focused synth layer) | identity |
+| Synth Osc Envelope Decay | 53 | `synth{L}Sound.oscEnvDcy` (focused synth layer) | identity |
+| Synth Osc Ctrl | 56 | `synth{L}Sound.oscCtrl` (focused synth layer) | identity |
+| Synth Osc Pitch Course | 55 | `synth{L}Sound.oscTuneCoarse` (focused synth layer) | linear |
+| Synth Osc Pitch Fine | 47 | `synth{L}Sound.oscTuneFine` (focused synth layer) | linear |
+| Synth Osc Envelope Release | 57 | `synth{L}Sound.oscEnvRls` (focused synth layer) | identity |
+| Synth Osc Envelope To Pitch | 3:33 | `synth{L}Sound.oscEnvDst` (focused synth layer) | index |
+| Synth Osc Envelope Velocity | 3:32 | `synth{L}Sound.oscEnvVel` (focused synth layer) | index |
+| Synth Filter Freq | 59 | `synth{L}Sound.fltFreq` (focused synth layer) | identity |
+| Synth Filter Resonance | 60 | `synth{L}Sound.fltRes` (focused synth layer) | identity |
+| Synth Filter Drive | 3:49 | `synth{L}Sound.fltDrive` (focused synth layer) | index |
+| Synth Filter KBD Track | 3:50 | `synth{L}Sound.fltKbdTrk` (focused synth layer) | index |
+| Synth Filter Type | 3:51 | `synth{L}Sound.fltType` (focused synth layer) | index |
+| Synth Filter Group | 25 | `synth.multiLayerFlt` | switch |
+| Synth Filter Envelope Attack | 49 | `synth{L}Sound.fltEnvAtk` (focused synth layer) | identity |
+| Synth Filter Envelope Decay | 50 | `synth{L}Sound.fltEnvDcy` (focused synth layer) | identity |
+| Synth Filter Envelope Release | 51 | `synth{L}Sound.fltEnvRls` (focused synth layer) | identity |
+| Synth Filter Envelope Amount | 73 | `synth{L}Sound.fltEnvAmt` (focused synth layer) | identity |
+| Synth Filter Envelope Velocity | 3:64 | `synth{L}Sound.fltEnvVel` (focused synth layer) | index |
+| Synth Amp Envelope Attack | 68 | `synth{L}Sound.ampEnvAtk` (focused synth layer) | identity |
+| Synth Amp Envelope Decay | 69 | `synth{L}Sound.ampEnvDcy` (focused synth layer) | identity |
+| Synth Amp Envelope Release | 71 | `synth{L}Sound.ampEnvRls` (focused synth layer) | identity |
+| Synth Amp Envelope Velocity | 3:56 | `synth{L}Sound.ampEnvVel` (focused synth layer) | index |
+| Synth Arp/Gate Mode | 3:72 | `synth{L}.arpMode` (focused synth layer) | index |
+| Synth Arp/Gate Rate | 74 | `synth{L}.arpRateClkDiv` (focused synth layer) | identity |
+| Synth Arp/Gate Range | 76 | `synth{L}.arpRange` (focused synth layer) | identity |
+| Synth Arp/Gate Direction | 3:74 | `synth{L}.arpDir` (focused synth layer) | index |
+| Synth Arp/Gate ZigZag | 3:75 | `synth{L}.arpZigZag` (focused synth layer) | index |
+| Synth Arp/Gate Run | 77 | `synth{L}.arpRun` (focused synth layer) | switch |
+| Synth Arp/Gate Pattern On | 3:73 | `synth{L}.arpPtnEnable` (focused synth layer) | index |
+| Synth LFO Rate | 79 | `synth{L}Sound.lfoRateClkDiv` (focused synth layer) | identity |
+| Synth LFO Waveform | 3:80 | `synth{L}Sound.lfoWave` (focused synth layer) | index |
+| Synth LFO Destination | 3:81 | `synth{L}Sound.lfoDst` (focused synth layer) | index |
+| Synth LFO Amount | 54 | `synth{L}Sound.lfoAmt` (focused synth layer) | identity |
+| Synth Unison | 3:18 | `synth{L}.oscUnison` (focused synth layer) | index |
+| Synth Sample Bright | 3:8 | `synth{L}Sound.smpTimbre` (focused synth layer) | index |
+| Synth Sample Cat/Sample | 3:4 | – nord samples are not available, and the value encoding (3:4:x:x) is not documented | – |
+| Synth Waveform | 3:2 | – the value encoding of type, category and wave in one number is not documented | – |
+| Mod 1 Enable | 2:64 | `{FX}.fx1Enable` | index |
+| Mod 1 Type/Variation | 2:65 | `{FX}.fx1Type` | index |
+| Mod 1 Amount | 85 | `{FX}.fx1Amt` | identity |
+| Mod 1 Rate | 86 | `{FX}.fx1RateClkDiv` | identity |
+| Mod 1 Pump Pedal | 87 | – a performance control, not program data: the pump pedal; PED pump follows the control pedal | – |
+| Mod 2 Enable | 2:72 | `{FX}.fx2Enable` | index |
+| Mod 2 Type/Variation | 2:73 | `{FX}.fx2Type` | index |
+| Mod 2 Amount | 89 | `{FX}.fx2Amt` | identity |
+| Mod 2 Rate | 90 | `{FX}.fx2Rate` | identity |
+| Delay Enable | 2:88 | `{FX}.dlyEnable` | index |
+| Delay Dry Wet | 93 | `{FX}.dlyMix` | identity |
+| Delay Tempo | 94 | `{FX}.dlyRateClkDiv` | linear |
+| Delay Feedback | 95 | `{FX}.dlyFbkAmt` | identity |
+| Delay Analog | 2:89 | `{FX}.dlyMode` | index |
+| Delay Ping-pong | 2:91 | `{FX}.dlyFbkPingPong` | index |
+| Delay Filter Type | 2:92 | `{FX}.dlyFbkFilt` | index |
+| Delay Global | 29 | `common.effectsDlyGlobal` | switch |
+| Amp/EQ Enable | 2:80 | `{FX}.ampEnable` | index |
+| Amp/EQ Type/Variation | 2:81 | `{FX}.ampTypeNew` | index |
+| Amp/EQ Drive | 101 | `{FX}.ampDrive` | identity |
+| Amp/EQ Bass | 102 | `{FX}.ampBass` | linear |
+| Amp/EQ Mid | 103 | `{FX}.ampMid` | linear |
+| Amp/EQ Treble | 104 | `{FX}.ampTreble` | linear |
+| Amp/EQ Mid Frequency | 107 | `{FX}.ampMidFreq` | identity |
+| Rotary Speed | 108 | `organ.effectsLeslieSpeed` | switch |
+| Rotary Drive | 110 | `organ.effectsLeslieDrv` | identity |
+| Reverb Enable | 2:104 | `{FX}.rvbEnable` | index |
+| Reverb Bright | 2:106 | `{FX}.rvbColor` | index |
+| Reverb Amount | 113 | `{FX}.rvbAmt` | identity |
+| Reverb Type/Variation | 2:105 | `{FX}.rvbType` | index |
+| Reverb Global | 30 | `common.effectsRvbGlobal` | switch |
+| Compressor Enable | 2:96 | `{FX}.cmpEnable` | index |
+| Compressor Amount | 117 | `{FX}.cmpAmt` | identity |
+| Compressor Fast | 2:97 | `{FX}.cmpResponse` | index |
+| Compressor Global | 28 | `common.effectsCmpGlobal` | switch |
+
+### 15.5 MIDI out and controlling a connected Stage 4 (builder B4)
+
+- Access: the existing `enable midi` key (one `requestMIDIAccess({ sysex: false })`, `midi/access.ts`); the output reads the ports through `MidiInput.onAccess`. SysEx is never requested or sent. Safari has no Web MIDI: the MIDI panel says so and stays inert.
+- Settings (`MidiOutSettings`, `midi/output.ts`): the output port (picker; none until the user picks one), the Stage 4's global channel (1–16, default 1, M p.61), the extern channels A/B/C (default 13, 14, 15, p.62), and four switches: **send to stage 4** (controls), **send notes**, **extern out**, **echo midi in to extern**. The port id and the channels are stored on this device (`formats/settings.ts`, B6); the switches are off at every page load and never stored. `mayEmit` (tested) is the one gate every send passes: a port is picked, the switch for the kind is on, and nothing that came in over MIDI goes back out (controls with origin `midi`, `morph`, `load`, `init` are never sent; MIDI notes reach extern channels only with echo on, p.63 "Echo Global To Extern Ch", default off).
+- **Send to stage 4** (`midi/send.ts` `MidiOut.changes`): for each change with origin `ui` or `derived`, `entryForKey(key)` gives the controller; none → nothing (most of the program has no controller, feasibility 0.3). Before a layer-parametric controller the sender makes the Stage 4's focus match: the section's layer focus controller of the active scene (organ 82/83, piano 109/112, synth 115/119) with the field's layer, when it differs from the last focus it sent (or none was sent yet); before an effects controller the Section FX Focus (CC 31) and the section's layer focus for the block. Values: `scaleOut` of the stored value (never the morphed one; the Stage 4 performs its own morphs from the controllers "send notes" passes on). Messages: `messagesFor` (one CC, or CC99, CC98, CC6 = 0, CC38). A fader drag sends at most one value per field per 20 ms (the last wins). The Stage 4 must have CTRL set to Receive or Send & Receive and Type CC & NRPN in its MIDI menu (p.62); the panel says so.
+- **Send all** (a key, only with send to stage 4 on): the active scene's layer scene (CC 8), then per section the scene I and II section, layer and focus controllers, then for every layer of every section its focus followed by its controllers, then for every block its FX focus followed by its effects controllers, then the global switches, and last the focus the editor shows. Messages are queued with `MIDIOutput.send(data, timestamp)` spaced 1 ms apart (a DIN cable carries about 1,000 three-byte messages per second); the key is disabled while a send runs; the print-out reports "sent N controllers; the stage 4 receives no split, zone, morph, arp pattern, extern or sample setting over midi: use the .ns4p export for those" (feasibility 1c).
+- **Send notes** (`MidiOut.play`): note on/off with velocity from the virtual and computer keyboards (source `pointer`, `computer`), pitch bend, sustain (CC64) and the on-screen wheel, pressure (channel pressure) and pedal (CC11), on the global channel. MIDI input is never echoed. The local sound keeps playing.
+- Panic (Esc, the panic key, hide, load) and switching a sender off: CC123 (all notes off) and CC64 0 on every channel the editor sent notes on since the last panic.
+- Status for the panel (`MidiOutStatus`): no access (MIDI not enabled), no outputs, ready with the port list, or the picked port disconnected (sending stops, the switch stays on and resumes when the port returns).
+
+### 15.6 Extern (builder B4)
+
+#### Fields (per synth layer, M p.46–47, 63)
+
+| field | range | labels (assumed where noted) | status after | sends |
+| --- | --- | --- | --- | --- |
+| `synth{L}.externEnable` | 0..1 | off/on (418-1) | live | the layer is an extern layer: silent here, plays its extern channel |
+| `externVelCurve` | 0..2 | soft, mid, hard (p.63 order; default 1 = mid) | unverified | velocity curve of sent notes: v' = 127 × (v/127)^γ, γ 0.7 soft, 1 mid, 1.4 hard |
+| `externModWheelEnable`, `externAftertouchEnable`, `externCtrlPedalEnable` | 0..1 | off/on (p.63) | live | CC1, channel pressure, CC11 to the extern channel |
+| `externSwellPedalEnable`, `externVolPedalEnable` | 0..1 | off/on | stored, "stored setting: the editor has no swell or volume pedal" | – |
+| `externCCNumber1`, `externCCNumber2` | 0..120 | off, CC 0 … CC 119: raw − 1 (assumed: the manual's range 0–119 and default 2 against the layout's 0..120 and default 3) | unverified | which CC the values go out on |
+| `externCCValue1`, `externCCValue2` | 0..127 | 0–127 | live | the CC values (morphable, M p.39: the effective value is sent as a morph moves) |
+| `externSendOnLoad` | 0..1 | off/on (p.63) | live | on a program load: bank select, program change, CC7 and both CCs |
+| `externBCValue_MSB`, `externBCValue_LSB` | 0..128 | "--" (off), 0 … 127: raw − 1 (assumed: the manual's default "--" against the layout default 0) | unverified | CC0 / CC32 before a program change |
+| `externPCValue` | 0..127 | 0–127 (p.63) | live | program change |
+
+`synth.layerLevelSyn{L}` of an extern layer goes out as CC7 (0–127, p.47).
+
+#### Behaviour (`midi/extern.ts`, fed by `teeSection(synth, extern)` in the router)
+
+- Only while **extern out** is on and a port is picked (`mayEmit` kind `extern`). An extern layer never sounds in the browser (`silentReason`: "extern: it makes no sound here; with midi out on it plays the extern channel").
+- Notes: a routed note-on's hits whose layer is an extern layer go out on that layer's extern channel: the routed note (key + program transpose, p.55 "the MIDI output from Extern Layers will also be transposed") + 12 × the layer's octave shift (p.46), dropped outside 0..127; velocity through the curve, times the hit's crossfade gain (assumed); the zones and split come from the router as for any layer (p.46 "KEYBOARD ZONES"). The note-off goes to the channels its note-on went to. Notes from MIDI input follow only with echo on. Sustain (CC64) when the layer's `sustainEnable` is on and pitch bend when its `pStickEnable` is on (p.46 "PITCH STICK AND SUSTAIN PEDAL MESSAGES"); wheel, pressure and pedal by the three enables.
+- Program data: a change of `externPCValue` (or of a bank select value) sends bank select MSB and LSB (when not "--") and the program change; a change of a CC number or value sends that CC; a level change sends CC7. On a load with `externSendOnLoad` on (p.55, 63): bank select, program change, CC7 and both CCs, for each extern layer that is on in the active scene. Changes with origin `midi` are not sent.
+- Panic: note offs for every note an extern channel holds, CC64 0.
+- Not modelled: the arpeggiator driving an extern layer (p.47 says it can; the arpeggiator lives in the synth engine and does not pass its notes to the tee), "Echo Global To Extern" filtering by the Stage 4's global channel (the editor echoes every channel when echo is on), the extern channels being global settings on the Stage 4 (here: editor settings, stored on this device).
+
+### 15.7 AudioWorklet engine (builder B5)
+
+- **What it covers**: band-limited oscillators for the analog categories the native graph approximates, Sync, Shape, Shape Sine, Multi, Super (`WORKLET_OSC_KINDS`; PolyBLEP saws and pulses, a PolyBLEP-corrected hard-sync reset of the slave, PWM by two BLEP saws, Shape Sine by phase distortion of a sine with the osc ctrl as the warp, Multi and Super as stacks of BLEP oscillators with the osc ctrl as detune spread, per M p.29–30 and the existing `waveforms.ts` definitions), osc ctrl swept at audio rate by the osc envelope and the LFO; the LP M filter as a 4-pole transistor ladder (one tanh per stage, resonance feedback 0..1 with gain compensation, 2× oversampled); the drive stage (tanh, gains 1, 2, 4, 8 for off/1/2/3, 2× oversampled) in front of every filter type. Pure, LP12, LP24, LP+HP, BP, HP biquads, Pure/Sub/Misc and FM stay native.
+- **Processors** (`audio/worklet/processor.ts`, one module): `nord-osc` (no input, one stereo output; AudioParams `pitch` in cents re A4 and `ctrl` 0..1 plus modulation; `processorOptions` `OscOptions`: kind, wave, unison copies and spread, seed; port messages `wave` and `end`) and `nord-filter` (one stereo input and output; AudioParams `frequency`, `detune` in cents, `resonance`, `drive`; option `mode` `ladder` or `drive`). Contract: `audio/worklet/protocol.ts`. DSP is plain TypeScript in `audio/worklet/dsp.ts` (pure, tested in Node), imported by the processor.
+- **Voice integration** (`audio/worklet/engine.ts` `createWorkletVoices(ctx)`): a `SourceProvider` that builds an `OscGraph` around one `AudioWorkletNode('nord-osc')` per voice for worklet kinds (the voice's pitch and ctrl `ConstantSourceNode`s connect to the node's parameters, as they do to `OscillatorNode.detune`), and a `FilterProvider` with one `AudioWorkletNode('nord-filter')` per voice. Lifetime: a silent `ConstantSourceNode` started and stopped with the graph is its clock (its `onended` is the graph's `onEnded`), and `{ type: 'end', at }` lets the processor return false. B5 owns `audio/voice.ts` from this phase on: `#buildChain` asks `taps.hooks.filters` first (a `FilterStage` between the mixer and the VCA; `update(spec, t)` on `filterParams`), the source hook stays as written.
+- **Loading and fallback**: at audio start main calls `worklet.load(WORKLET_MODULE_URL)`; until it resolves, and wherever `supportsAudioWorklet` is false or `addModule` rejects, both providers decline and the native voice plays (with its coarse markers). A voice started before the module loaded keeps its native graph. `ready` turns the coarse markers off (`coarsePatterns(…, worklet.ready)`).
+- **Build and CSP**: the brief names `new URL('./x.ts', import.meta.url)`; Vite copies such a file as a raw asset (TypeScript not compiled, imports not bundled), so it would fail in the built site. The plan uses `import url from './processor.ts?worker&url'` (`audio/worklet/module-url.ts`, typed in `env.d.ts`): Vite builds the processor and its imports as a separate same-origin bundle and returns its URL (checked with the stub: `/nord/assets/processor-<hash>.js`), allowed by `script-src 'self'`, no `blob:`, no `eval`. Only main imports `module-url.ts` (Node cannot resolve the query). B5 checks the processor in `npm run dev` and in `npm run build && npm run preview` (Vite's dev server serves workers with its own client code; if that breaks the AudioWorkletGlobalScope in dev only, dev may skip the worklet with a console note, production must not).
+- **CPU**: one worklet node per voice (46 voices, unison inside the node), a filter node only for LP M or drive; Super and Multi stacks at most 7 oscillators per copy; denormals flushed. The voice count cap stays.
+- **TypeScript**: no ambient `AudioWorkletProcessor` types exist in the DOM lib; the processor declares the slice it uses locally (`globalThis` cast), no global `.d.ts`.
+
+### 15.8 Smaller gaps (builders B6, B1)
+
+- **Delete a saved preset** (B6): in the files box's load list, a `delete` key per slot opens an inline confirmation line in the files box (`delete "<name>"? confirm / cancel`, the export confirmation's pattern); confirm calls `PresetSlots.remove(id)` (exists); the working copy is never offered for deletion.
+- **Aux keyboard and output routing editable** (B6; status `stored`, editable, exported; the groups `aux-kb` and `output` change from `layout` to `stored`):
+  - `common.auxKbdEnable` off/on; `common.auxKbdVelCurve` soft, medium, hard (p.58); `organ.auxKbdControl` and `piano.auxKbdControl` `--`, `A-`, `-B`, `AB`; `synth.auxKbdControl` `---`, `A--`, `-B-`, `--C`, `AB-`, `A-C`, `-BC`, `ABC` (p.58; value order = the manual's list order, assumed). Line: "stored setting, no sound: the aux keyboard is a second midi keyboard on its own channel (p.43, 58); the editor does not map it".
+  - `common.audioRoutingBusOrg`, `…PnoA`, `…SynA`: Main, Sub I, Sub II, Sub III; `…Leslie`: Main, Sub I, Sub II, Sub III, `←` (as the organ), Auto (default 5 = Auto); `…PnoB`, `…SynB`, `…SynC`: Main, Sub I, Sub II, Sub III, `←` (as the layer before; default 4) (p.59, Per Program mode; order assumed from the manual's lists and the layout defaults). Line: "stored setting, no sound: buses route the stage 4's physical outputs (p.59); the browser has one stereo output".
+- **Global effect switches** (B1): `common.fxEnable` and the three global switches act (15.1).
+- **Fields that still cannot sound, with why** (B6, `storedLine`): `common.pdlLayerSceneEnable`, `common.pdlTapEnable` "pedal assignment, stored" (no pedal input); `organ{X}.presetEnable` "stored setting, no sound: drawbar live plays the stage 4's physical drawbars; the editor plays the stored ones" (p.19, 21); `organ.leslieStopPreset`, `leslieRotorAngle`, `leslieHornAngle` "stored setting, no sound: the rotor stop angles are not modelled"; `piano{X}.entry` "stored setting, no sound: the model's slot in the stage 4's piano memory"; the preset references stay read-only "the preset library is nord content (p.41)"; `externSwellPedalEnable`, `externVolPedalEnable` as in 15.6.
+
+### 15.9 UI (builder B6)
+
+Structure only, with the existing primitives of `docs/web-design.md` (fader, enum select, bool key with LED, layer keys, region box, legend, status markers, print-out, inline confirmation line). The visual questions marked **open** need the orchestrator's decision in `docs/web-design.md` before B6 styles them; B6 builds the structure and accessibility meanwhile.
+
+- **Effects region** (row 5 right; replaces "layer effects · not implemented"): legend `layer effects · approximation`. First line: `fx on` (bool key, `common.fxEnable`); focus keys `organ` `piano a` `piano b` `synth a` `synth b` `synth c` (layer-key style, accent border on the FX focus block; they write `fxFocusEntries`); `group` (bool key, the focused section's group switch; aria-disabled for the organ, with "the organ has one effects block for both layers"). Below, six groups in the synth region's group grid: `mod 1` (on, type, rate, mst clk, amount), `mod 2` (on, type, rate, amount), `delay` (on, tempo, mst clk, dry/wet, feedback, analog, ping pong, filter, fx, `global`), `amp · eq` (on, type, drive, bass, mid, mid freq, treble), `comp` (on, amount, fast, `global`), `reverb` (on, type, dry/wet, colour, `global`). The controls edit the focus block and rebind when it changes (the synth panel's rebind; the pattern rule needs the block in place of the layer, `parseFxKey`). Rate and tempo labels follow `mst clk` and the type (Hz, a division, RM pitch, A-Wah "sens") through curated option sets on the `model/fx.ts` curves. Every sound control carries `≈`; unverified ones `nv`. With a global switch on, that group says "global: one instance on every section, with these settings".
+- **Morph editing** (every control of a field in `MORPH_PARENTS`): the morph dot becomes a small `morph` disclosure key after the label (`aria-expanded`, its label lists the active sources, e.g. "morph: wheel +40"); open, it shows three rows `wheel`, `a.t.`, `ctrl ped`, each a signed fader for the amount (0 in the middle, `morphRange`) and the end value as text ("→ 4.8 kHz", `morphEnd`), all marked `nv`; moving one shows the end value on the display (15.2). **Open:** this disclosure, or a Stage-4-like assign mode (hold `wheel`, move the control to its end).
+- **Controller strip** (the keyboard region, left of the keys): `wheel`, `a.t.`, `ctrl ped` as vertical native range inputs (the drawbars' `writing-mode` technique, 0 at the bottom here; a pitch wheel is not added: bend stays MIDI-only), labelled with their values, keyboard operable; the a.t. strip springs back on pointer up and key up (`ScreenControllers`). **Open:** placement on phones (the keyboard is sticky and short; proposal: a `ctrl` key in the keyboard legend line shows the strip in place of the keys).
+- **MIDI panel**: the extern region (row 5 left) becomes `extern · midi`, live, with two groups. `midi`: output port select (or "enable midi first" / "not supported in this browser" / "no outputs"), channel select (1–16), bool keys `control in`, `send to stage 4`, `send notes`, `extern out`, `echo midi in`, the control-in channel select, a `send all` key (aria-disabled unless send to stage 4 is on), extern channel selects a, b, c, and a line "the stage 4's midi menu needs ctrl receive and cc & nrpn (p.62)". `extern`: the focused synth layer's 15 extern fields (15.6), following the synth focus. **Open:** one region, or a separate `midi` region.
+- **Own samples**: in the synth oscillator group, when the focused layer is in samples mode: `sample` select (the own samples by name, and "none"), `root` select (C-1 … G9), `loop` select (one-shot, loop), loop start and end faders in milliseconds of the selected sample (0 = end), the existing `sample dyn` and `bright` controls, and a readout "nord sample: <name> (not available)" when `smpNameHash` names one in `SAMPLE_NAMES`, else "nord sample: not decoded". The audio data is managed apart, in the files box: a `samples` key opens an inline list with `import audio` (file picker, `SAMPLE_ACCEPT`), one line per sample (name, length, size, a `delete` key with an inline confirmation), and a total line "n own samples · 3.4 MB · kept only in this browser, never uploaded"; an `embed own samples` bool key next to `app-preset ↓`. **Open:** list placement and look.
+- **Files box**: `delete` per saved preset (15.8).
+- **Program region**: the aux kb and output groups become controls (selects and bool keys with their stored lines) instead of readouts; preset refs stay readouts behind "show values".
+- **Narrow screens**: extern · midi and layer effects are live regions now, so they show their content (one column) instead of legend and badge; the order stays (display and files, synth, organ, piano, program, extern · midi, layer effects, keyboard). The page never scrolls sideways.
+- **Accessibility**: every new control has a visible label, value and unit, a focus ring, 44 px touch targets on coarse pointers and narrow screens, and goes in the tab order where it appears; switches are `<button aria-pressed>`; selects are native; inline confirmations move focus to `confirm` and back on cancel; print-out lines are announced politely.
+- **Texts** (`ui/page.ts` about and limits, README "What plays" and "Limits"): layer effects, morphs, own samples, MIDI control in and out, extern and the worklet engine as approximations; what still does not work (Nord samples, Wave oscillators, real pianos, arp patterns, the aux keyboard, output buses, the arpeggiator driving extern); the never-uploaded promise for own samples; MIDI out only after the user switches it on, never SysEx.
+
+### 15.10 Statuses after this work (summary)
+
+| area | live | unverified | stored | layout (read-only) |
+| --- | --- | --- | --- | --- |
+| effects (per block, 32) | 12: the 6 enables, both Mst Clk switches, ping pong, bass, mid freq, treble | 20: types, rates, amounts, delay time, mix, feedback, analog, filter, loop fx, amp type, drive, mid, compressor amount and fast, reverb type, amount, colour | – | – |
+| effects-wide (9) | `fxEnable`, the two layer focus fields | section focus, the two group switches, the three global switches | – | – |
+| morph amounts (357) | – | all | – | – |
+| extern (15 per layer) | 8: enable, three controller enables, two CC values, send on load, program | 5: velocity curve, two CC numbers, two bank select values | swell and volume pedal enables | – |
+| samples mode | `mode` | samples option, `smpDynamic`, `smpTimbre` | – | – |
+| program | as section 14 | as section 14 | + aux kb (5), output (7) | preset refs |
+
+### 15.11 Tests
+
+Node test runner, erasable TypeScript, DOM-free and Web-Audio-free (`fake-audio.ts`; fake IndexedDB and Web MIDI as plain objects in the test file). A fake that needs more node types subclasses `FakeContext` in its own test file (`fake-audio.ts` stays frozen; it has gain, delay, wave shaper, biquad, compressor, convolver, stereo panner, constant source, oscillator, buffer source, splitter and merger, no `AudioWorkletNode`).
+
+| builder | tests (new files) | must cover |
+| --- | --- | --- |
+| this plan | `shared-fx-hooks`, `shared-fx-model`, `shared-morph`, `shared-cc-map`, `shared-midi-out`, `shared-samples`, `shared-worklet` (frozen) | 15.0 |
+| B1 | `fx*.test.ts` | curves and IR generation (finite, decay lengths per type, deterministic by seed, stereo decorrelation); per unit on the fake: enable bypass, type switch, ping pong cross-feed, To Rotary moves the signal from output to rotarySend, global bypass in every chain and one global instance, `fxEnable` off, silence on panic, load re-read, morph changes reach rates and mixes; binding coverage of the effects region |
+| B2 | `morph*.test.ts`, `cc*.test.ts`, `controllers*.test.ts` | the rotary fraction drives rotor speed between slow and fast; engines follow `'morph'` changes (synth cutoff, organ drawbar, piano level) on the fake; on-screen controllers emit and spring back; cc-in: off does nothing, every mapped entry writes its field with origin `midi`, NRPN assembly, focus addressing in both scenes, groups propagate, play-bus CCs ignored, channel filter |
+| B3 | `samples*.test.ts` | the IndexedDB store on a fake factory (put idempotent, list newest first, delete both stores, usage, quota and blocked errors), the attack-end analysis, the provider's graph on the fake (root offset, loop points, one-shot, the four dynamics options, bright), presets with `userSamples` and `embeddedSamples` (round trip, hash mismatch, missing sample notes, size limits) |
+| B4 | `midi-out*.test.ts`, `extern*.test.ts` | nothing is sent with any switch off or no port; focus before a layer controller; 20 ms coalescing; send all order, count and pacing; notes and performance only from the editor's sources; panic CC123; extern notes with zones, transpose, octave shift, curve, sustain and bend switches, program data and send on load, echo off by default |
+| B5 | `worklet*.test.ts` | PolyBLEP correction (no step larger than the naive wave's at a discontinuity; spectrum above Nyquist reduced), sync reset, shape and super outputs finite and bounded, ladder: unity DC gain at resonance 0, self-oscillation near 1, stability over the whole range; drive gains; the provider declines before load and without support; message validation |
+| B6 | `regions*.test.ts`, `ui*.test.ts`, updated `sections`, `descriptors`, `controls`, `bindings`, `report`, `ns4p-import` tests and `fixtures/report-expected.txt` | statuses of 15.10, labels of the aux kb, output and extern fields, effects region rebinding by block, morph editor end values, delete-preset confirmation model, settings storage (the output switches are never stored), the smp bindings with their statuses |
+
+Coverage tests run one way (live and unverified descriptors ⊆ bindings), except `bindings.test.ts`'s existing rule that stored fields have none: hence the smp statuses and bindings both belong to B6.
+
+Checks at the end of every builder's task: `cd web && npm test && npm run typecheck && npm run build`; `python3 -I -m unittest discover -s tests -t .`.
+
+### 15.12 Work split
+
+Every path below is under `web/src/editor/` or `web/test/editor/`. No file belongs to two builders; files of 15.0 are frozen (ask the orchestrator); the stubs of 15.0 belong to the builder named. Nobody changes `web/src/ns4/**`, `web/vercel.json`, `package.json` or the lockfile, `fake-audio.ts`, or private files (`presets/`, `docs/analysis/`, `web/test/fixtures/presets/`, `golden-local.json`).
+
+| builder | owns |
+| --- | --- |
+| B1 effects | `audio/fx/**` except `types.ts` (replaces the bodies of `chain.ts` `fxChainFactory` and `global.ts` `globalFxFactory`; new files as needed, e.g. `mod1.ts`, `mod2.ts`, `delay.ts`, `amp.ts`, `comp.ts`, `reverb.ts`, `impulse.ts`, `params.ts`, `bindings.ts`); tests `fx*.test.ts` |
+| B2 morphs and MIDI control in | `midi/cc-in.ts` (replaces the stub), `input/controllers.ts` (replaces the stub), `audio/organ/rotary.ts` (only `updateSpeed` and what it needs: the rotary speed follows `MorphedValues.fraction` when the reader has it); tests `morph*.test.ts`, `cc*.test.ts`, `controllers*.test.ts` |
+| B3 own samples | `formats/samples-db.ts` (adds the IndexedDB implementation and replaces `openSampleStore`; the exported types stay), `formats/preset.ts` (`toPresetJsonWith`, `readPresetExtras`, the size rule of 15.3), `audio/samples/**` (replaces `provider.ts` and `decode.ts`); tests `samples*.test.ts` |
+| B4 MIDI out and extern | `midi/send.ts`, `midi/extern.ts` (replace the stubs), `midi/output.ts` (may add helpers; the exported types, `DEFAULT_MIDI_OUT` and `mayEmit` stay as tested); tests `midi-out*.test.ts`, `extern*.test.ts` |
+| B5 AudioWorklet engine | `audio/worklet/**` except `protocol.ts` and `module-url.ts` (replaces `engine.ts` and `processor.ts`, adds `dsp.ts` and the providers), `audio/voice.ts` (the filter hook in `#buildChain`; the source hook stays); tests `worklet*.test.ts` |
+| B6 UI, statuses and wiring | `ui/**`, `editor.css`, `main.ts` (keep the two uncommitted fixes: one-column synth groups on phones, audio unlock on any first gesture), `model/curated.ts`, `model/sections.ts`, `model/descriptors.ts`, `model/actions.ts` (FX group, global-off copy, FX focus follows layer focus), `audio/bindings.ts` (only the two smp lines of 15.3), `formats/settings.ts` (new: MIDI and control-in settings on this device), `formats/ns4p-import.ts` and `formats/report.ts` (notes and markers), `README.md`; tests `regions*.test.ts`, `ui*.test.ts` and the updated tests named in 15.11 with `fixtures/report-expected.txt` |
+
+main wiring (B6), at audio start:
+
+```
+morphed = new MorphedValues(store)                                       (once, at page load)
+master  = new MasterBus(ctx); clock = { bpm, anchor } from the synth engine's MasterClock (store before it exists)
+global  = globalFxFactory({ ctx, values: morphed, out: master.input, clock })
+fx      = { chain: fxChainFactory, rotary: () => organ?.rotaryInput ?? null, clock }
+c       = { ctx, values: morphed, out: global.input, fx }
+organ   = new OrganEngine(c)                                             (first: the rotary must exist)
+worklet = createWorkletVoices(ctx); void worklet.load(WORKLET_MODULE_URL).then(markCoarse)
+samples = new SampleSources(assignments)                                 (buffers from decodeSample / the store)
+synth   = makeSynthFactory({ hooks: { sources: [samples, worklet.sources], filters: [worklet.filters] } })(c)
+router  = new Router(store, { organ, piano: pianoFactory(c), synth: teeSection(synth, externOut) })
+store.onChange(b => { const x = morphed.expand(b); router.applyChanges(x); global.applyChanges(x); externOut.applyChanges(x); midiOut.changes(b) })
+bus: controller → router.handle; changes = morphed.move(…); router/global/extern.applyChanges(changes); midiOut.play(e)
+bus: noteOn/noteOff/bend/sustain → midiOut.play(e) (send notes); panic → morphed.rest() …, midiOut.panic(), extern via the tee
+midi.onMessage(e => controlIn.handle(e)); midi.onAccess(a => midiOut.setAccess(a))
+```
+
+Builders B1–B5 need only 15.0; B6 compiles against the stubs. Any order works; the orchestrator merges and runs the checks once more.
+
+### 15.13 Risks and open questions
+
+- Every effect, morph scaling, CC scaling and extern encoding marked unverified is a guess; markers and the region legend say so. The chain order, the FX focus order, the group switch value, the delay tempo direction and the division lists are assumptions of this plan.
+- Layer addressing over MIDI: if the Stage 4 sends layer controllers differently (per-layer channels, or always layer A), control in addresses the wrong layer; the focus controllers in a recorded stream mitigate it. Needs a capture from hardware.
+- Feedback loops: MIDI out to a device that echoes back to the input. The gate never re-sends MIDI input, and control in writes origin `midi`, which the sender drops; a loop of notes is impossible while echo to extern stays off.
+- CPU: six effect chains (lazy), a convolver per block with reverb on, the global units, 46 worklet voices: phones may overload; the levers are lazy units, the shared IR cache, and the voice caps.
+- Storage: IndexedDB is unavailable in some private modes; own samples then do not work and the panel says so; presets still load (their layers fall silent with a note).
+- Vite's `?worker&url` in dev for an AudioWorklet (15.7) is unproven; the production build is checked with the stub.
+- **Open for the orchestrator** (visual and interaction decisions, `docs/web-design.md`): the morph editor (disclosure vs assign mode), the controller strip on phones, the MIDI panel's place (inside extern or its own region), the samples manager's place and look, how the effects region's six groups lay out at desktop width.

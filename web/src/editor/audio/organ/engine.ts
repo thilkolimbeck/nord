@@ -5,8 +5,9 @@
  * from the manual's descriptions (M p.18–22, 53).
  *
  *   router ─► handle(RoutedNoteOn) ─► one OrganVoice per hit layer ─► that layer's taps
- *   layer A, layer B (layer.ts) ─► organ bus ─┬─► direct ─────────────► out
- *                                             └─► send ─► rotary.ts ─► out
+ *   layer A, layer B (layer.ts) ─► organ bus ─► effects chain (organFx; fx/types.ts) ─┬─► direct ─────────────► out
+ *                                                                                  └─► send ─► rotary.ts ─► out
+ *   piano and synth layers with Amp/EQ "To Rotary" (p.52) reach the rotary through rotaryInput
  *   shared: tonewheel generator (lazy), looped noise (lazy), bend ConstantSourceNode (pitch stick)
  *
  * The router decides which layers play a key (scene, section and layer switches, zones, split
@@ -16,6 +17,7 @@
  */
 import type { ValueReader } from '../../model/labels.ts';
 import type { Change } from '../../model/store.ts';
+import { type FxChain, fxChainFor } from '../fx/types.ts';
 import type {
   OrganLayer, RoutedNoteOn, SectionContext, SectionEngine, SectionEvent, SectionFactory,
 } from '../section.ts';
@@ -47,6 +49,8 @@ export class OrganEngine implements SectionEngine<'organ'> {
   readonly #ctx: BaseAudioContext;
   readonly #values: ValueReader;
   readonly #bus: GainNode;
+  /** The organ effects block, shared by both layers (p.48): organ bus ─► chain ─► direct and rotary send. */
+  readonly #chain: FxChain;
   readonly #direct: GainNode;
   readonly #send: GainNode;
   readonly #rotary: Rotary;
@@ -71,8 +75,9 @@ export class OrganEngine implements SectionEngine<'organ'> {
     this.#direct = ctx.createGain();
     this.#send = ctx.createGain();
     this.#rotary = new Rotary(ctx, c.out, c.values);
-    this.#bus.connect(this.#direct).connect(c.out);
-    this.#bus.connect(this.#send).connect(this.#rotary.input);
+    this.#chain = fxChainFor(c, 'organFx', this.#bus, [this.#direct, this.#send]);
+    this.#direct.connect(c.out);
+    this.#send.connect(this.#rotary.input);
     this.#bendSource = ctx.createConstantSource();
     this.#bendSource.offset.value = 0;
     this.#bendSource.start(ctx.currentTime);
@@ -138,6 +143,11 @@ export class OrganEngine implements SectionEngine<'organ'> {
     return this.#rotary.targets;
   }
 
+  /** The rotary speaker's input: piano and synth layers with Amp/EQ "To Rotary" connect here (p.52–53). */
+  get rotaryInput(): AudioNode {
+    return this.#rotary.input;
+  }
+
   /** Whether the tonewheel generator has been created (at the first B3 or B3 Bass note). */
   get tonewheelsRunning(): boolean {
     return this.#tonewheels !== null;
@@ -173,13 +183,15 @@ export class OrganEngine implements SectionEngine<'organ'> {
         this.#updateBend(t);
         return;
       case 'controller':
-        // The swell pedal and morphs are not modelled (plan section 13.2).
+        // Morphs reach the organ as effective values (model/morph.ts); the effects may follow the pedal (p.49).
+        this.#chain.controller(e.kind, e.value);
         return;
     }
   }
 
   applyChanges(batch: readonly Change[]): void {
     if (this.#disposed) return;
+    this.#chain.applyChanges(batch);
     if (batch.some((c) => c.origin === 'load' || c.origin === 'init')) {
       this.reload();
       return;
@@ -203,6 +215,7 @@ export class OrganEngine implements SectionEngine<'organ'> {
     for (const v of this.#voices.values()) v.kill(t);
     this.#voices.clear();
     this.#pedal = false;
+    this.#chain.silence();
   }
 
   reload(): void {
@@ -219,6 +232,7 @@ export class OrganEngine implements SectionEngine<'organ'> {
     this.#rotary.dispose();
     for (const l of ORGAN_LAYERS) this.#layers[l].dispose();
     this.#bendSource.stop();
+    this.#chain.dispose();
     for (const n of [this.#bus, this.#direct, this.#send, this.#bendSource]) n.disconnect();
   }
 

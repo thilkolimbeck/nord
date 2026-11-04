@@ -6,3 +6,9 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Vite's worker URL import (plan section 15.7): the bundled worker or worklet module's same-origin URL. */
+declare module '*?worker&url' {
+  const url: string;
+  export default url;
+}

@@ -17,9 +17,13 @@ test('every layout key is in exactly one group or in HIDDEN', () => {
   assert.equal(PLACEMENT.size + HIDDEN.length, 955);
 });
 
-test('six regions; program, organ, piano and synth play, the rotary is an organ group', () => {
+test('six regions, all live since plan section 15; the rotary is an organ group', () => {
   assert.deepEqual(PANEL.map((r) => r.id), ['program', 'organ', 'piano', 'synth', 'extern', 'effects']);
-  assert.deepEqual(PANEL.filter((r) => r.status === 'live').map((r) => r.id), ['program', 'organ', 'piano', 'synth']);
+  assert.deepEqual(PANEL.filter((r) => r.status === 'live').map((r) => r.id),
+    ['program', 'organ', 'piano', 'synth', 'extern', 'effects']);
+  const program = PANEL.find((r) => r.id === 'program')!;
+  assert.deepEqual(program.groups.filter((g) => g.status !== 'live').map((g) => [g.id, g.status]),
+    [['presets', 'layout'], ['aux-kb', 'stored'], ['output', 'stored']]);
   assert.equal(PLACEMENT.get('organ.effectsLeslieSpeed')!.group.id, 'rotary');
   assert.equal(PLACEMENT.get('organ.effectsLeslieSpeed')!.region.id, 'organ');
   assert.equal(PLACEMENT.get('common.sectionEnableSyn_I')!.region.id, 'synth');

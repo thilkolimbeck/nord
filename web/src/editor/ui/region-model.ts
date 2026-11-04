@@ -5,11 +5,16 @@
  * program region and the readouts that stay behind "show values". The panels render these; the
  * tests check them in Node.
  */
+import { FX_UNIT_TITLES } from '../model/curated.ts';
+import {
+  FX_BLOCKS, FX_GLOBAL_KEYS, FX_GROUP_KEYS, type FxBlock, fxFocusBlock, fxGlobalOn, fxGroupOn, type FxParam, fxSectionOf,
+  type FxUnit,
+} from '../model/fx.ts';
 import type { Ns4Key } from '../model/keys.ts';
 import type { ValueReader } from '../model/labels.ts';
 import { PIANO_MODELS, type PianoModel, pianoModel, PIANO_TYPES, type PianoType, pianoType } from '../model/pianos.ts';
 import { activeScene, type Scene, SCENES, type SectionId, SECTIONS, sectionOn } from '../model/scene.ts';
-import { APPROX_SUFFIX } from './control-model.ts';
+import { APPROX_SUFFIX, fxBlockName } from './control-model.ts';
 
 /** Organ models in the order of `organ{X}.model` (table 114-2). */
 export type OrganModel = 'B3' | 'VOX' | 'FARF' | 'PIPE1' | 'PIPE2' | 'B3 BASS';
@@ -133,7 +138,7 @@ export function variationUsed(bank: number): boolean {
 
 /** 'n set, …' for the program region's morph readout, counting every non-zero morph field. */
 export function morphCountText(count: number): string {
-  return count === 0 ? 'none set' : `${count} set, shown as dots on the controls, not played`;
+  return count === 0 ? 'none set' : `${count} set: each control's m key shows and edits them; they play (scaling nv)`;
 }
 
 /** The program region's scene keys: label, the scene, whether it is active. */
@@ -145,4 +150,52 @@ export function sceneKeys(values: ValueReader): ReadonlyArray<{ readonly scene: 
 /** The program region's section keys: section, label, whether it is on in the active scene. */
 export function sectionKeys(values: ValueReader): ReadonlyArray<{ readonly section: SectionId; readonly label: string; readonly on: boolean }> {
   return SECTIONS.map((section) => ({ section, label: section, on: sectionOn(values, section) }));
+}
+
+// ---------------------------------------------------------------------------------------------
+// The layer effects region (plan section 15.9): the FX focus keys, the group key and the six
+// unit groups of the block in focus.
+
+/** The effects region's unit groups, in chain order, with the fields each shows and its Global switch. */
+export const FX_REGION_GROUPS: ReadonlyArray<{
+  readonly unit: FxUnit;
+  readonly title: string;
+  readonly params: readonly FxParam[];
+  readonly global: Ns4Key | null;
+}> = [
+  { unit: 'mod1', title: FX_UNIT_TITLES.mod1, params: ['fx1Enable', 'fx1Type', 'fx1RateClkDiv', 'fx1ClkEnable', 'fx1Amt'], global: null },
+  { unit: 'mod2', title: FX_UNIT_TITLES.mod2, params: ['fx2Enable', 'fx2Type', 'fx2Rate', 'fx2Amt'], global: null },
+  {
+    unit: 'delay', title: FX_UNIT_TITLES.delay, global: FX_GLOBAL_KEYS.delay,
+    params: ['dlyEnable', 'dlyRateClkDiv', 'dlyClkEnable', 'dlyMix', 'dlyFbkAmt', 'dlyMode', 'dlyFbkPingPong', 'dlyFbkFilt',
+      'dlyFbFxType'],
+  },
+  {
+    unit: 'amp', title: FX_UNIT_TITLES.amp, global: null,
+    params: ['ampEnable', 'ampTypeNew', 'ampDrive', 'ampBass', 'ampMid', 'ampMidFreq', 'ampTreble'],
+  },
+  { unit: 'comp', title: FX_UNIT_TITLES.comp, params: ['cmpEnable', 'cmpAmt', 'cmpResponse'], global: FX_GLOBAL_KEYS.comp },
+  { unit: 'reverb', title: FX_UNIT_TITLES.reverb, params: ['rvbEnable', 'rvbType', 'rvbAmt', 'rvbColor'], global: FX_GLOBAL_KEYS.reverb },
+];
+
+export const FX_REGION_LEGEND = 'layer effects · approximation';
+export const FX_GLOBAL_LINE = 'global: one instance on every section, with these settings';
+export const FX_ORGAN_GROUP_NOTE = 'the organ has one effects block for both layers';
+
+/** The focus keys: one per block ('organ', 'piano a', …), the one in FX focus pressed. */
+export function fxFocusKeys(values: ValueReader): ReadonlyArray<{ readonly block: FxBlock; readonly label: string; readonly active: boolean }> {
+  const focus = fxFocusBlock(values);
+  return FX_BLOCKS.map((block) => ({ block, label: fxBlockName(block).replace(/ fx$/, ''), active: block === focus }));
+}
+
+/** The group key for the section in FX focus: the organ has none (one block for both layers). */
+export function fxGroupKey(values: ValueReader): { readonly section: SectionId; readonly key: Ns4Key | null; readonly on: boolean } {
+  const section = fxSectionOf(fxFocusBlock(values));
+  if (section === 'organ') return { section, key: null, on: false };
+  return { section, key: FX_GROUP_KEYS[section], on: fxGroupOn(values, section) };
+}
+
+/** Whether a unit group shows the Global line (its Global switch is on). */
+export function fxGlobalShown(values: ValueReader, unit: FxUnit): boolean {
+  return fxGlobalOn(values, unit);
 }

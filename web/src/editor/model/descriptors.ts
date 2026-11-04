@@ -7,7 +7,7 @@
  */
 import { NS4_LAYOUT, type Encoding } from '../../ns4/layout.ts';
 import { FIELD_DEP, FIELD_VALUE_TABLE, PORT_NAMES } from '../generated/display-ns4.ts';
-import { CURATED, type Curated, STORED_LINE } from './curated.ts';
+import { CURATED, type Curated, MORPH_NOTE, STORED_LINE } from './curated.ts';
 import { isNs4Key, LAYER_TOKEN, layerKey } from './keys.ts';
 import { pianoModel } from './pianos.ts';
 import { parseSceneKey, sceneKey } from './scene.ts';
@@ -28,9 +28,14 @@ export interface EnumOption {
   readonly note?: string;
 }
 
-/** Manual labels chosen by another field's value (piano timbre and variation by piano type). */
+/**
+ * Manual labels chosen by another field's value (piano timbre and variation by piano type), or by
+ * two fields through `pick` (the Mod 1 rate by type and Mst Clk, plan 15.9).
+ */
 export interface OptionSets {
   readonly dep: Ns4Key;
+  readonly dep2: Ns4Key | null;
+  readonly pick: ((dep: number, dep2: number) => number) | null;
   readonly sets: Readonly<Record<number, readonly EnumOption[]>>;
   readonly fallback: readonly EnumOption[];
 }
@@ -171,7 +176,9 @@ function build(key: Ns4Key): ParamDescriptor {
   const max = f.enc === 'raw' ? 2 ** f.width - 1 : f.max;
 
   let status: ParamStatus;
-  if (placement === undefined) status = inSynthSound(key) ? 'stored' : 'layout';
+  // Morph amounts play since plan section 15.2 (model/morph.ts); their scaling is assumed.
+  if (parent !== null) status = 'unverified';
+  else if (placement === undefined) status = inSynthSound(key) ? 'stored' : 'layout';
   else if (placement.region.status !== 'live') status = 'layout';
   else if (cur?.status !== undefined) status = cur.status;
   else if (placement.group.status === 'stored' || placement.group.status === 'layout') status = placement.group.status;
@@ -184,10 +191,16 @@ function build(key: Ns4Key): ParamDescriptor {
   else if (cur?.optionsBy !== undefined) {
     // '{L}' names the field's own synth layer (the arp rate follows the layer's mst clk switch).
     const layer = layerOf(key);
-    const named = cur.optionsBy.dep;
-    const dep = named.includes(LAYER_TOKEN) && layer !== null ? layerKey(layer, named) : named;
-    if (!isNs4Key(dep)) throw new Error(`${key}: option dependency ${dep} is not a Stage 4 field`);
-    optionSets = { dep, sets: cur.optionsBy.sets, fallback: cur.optionsBy.fallback };
+    const resolve = (named: string): Ns4Key => {
+      const dep = named.includes(LAYER_TOKEN) && layer !== null ? layerKey(layer, named) : named;
+      if (!isNs4Key(dep)) throw new Error(`${key}: option dependency ${dep} is not a Stage 4 field`);
+      return dep;
+    };
+    const by = cur.optionsBy;
+    optionSets = {
+      dep: resolve(by.dep), dep2: by.dep2 === undefined ? null : resolve(by.dep2), pick: by.pick ?? null,
+      sets: by.sets, fallback: by.fallback,
+    };
     // A rate with labels per mode stays a fader (continuous); other option sets are selects.
     const kind = cur.kind === 'continuous' ? 'continuous' : 'enum';
     labels = { kind, labelSource: 'manual', unit: kind === 'continuous' ? '' : null, options: null };
@@ -206,14 +219,15 @@ function build(key: Ns4Key): ParamDescriptor {
   const morphs = morphKeys.every((k) => NS4_LAYOUT.fields.has(k))
     ? { wheel: morphKeys[0] as Ns4Key, afterTouch: morphKeys[1] as Ns4Key, ctrlPedal: morphKeys[2] as Ns4Key }
     : null;
-  const note = cur?.note ?? (labels.labelSource === 'raw' && labels.kind !== 'opaque' && parent === null
+  const note = parent !== null ? MORPH_NOTE : cur?.note ?? (labels.labelSource === 'raw' && labels.kind !== 'opaque'
     ? 'no Stage 4 display table: the number is the stored step' : null);
 
   return {
     key, kind: labels.kind, min, max, default: f.default, width: f.width, enc: f.enc,
     region: placement?.region.id ?? null, group: placement?.group.id ?? null, layer: layerOf(key),
     label, unit: labels.unit, labelSource: labels.labelSource, status, options: labels.options,
-    deps: optionSets !== null ? [optionSets.dep] : labels.labelSource === 'dep' ? labelDeps(key) : [],
+    deps: optionSets !== null ? [optionSets.dep, ...(optionSets.dep2 === null ? [] : [optionSets.dep2])]
+      : labels.labelSource === 'dep' ? labelDeps(key) : [],
     optionSets, morphs, note, storedLine: status === 'stored' ? cur?.stored ?? STORED_LINE : null,
   };
 }
@@ -228,7 +242,11 @@ export function descriptorOf(key: Ns4Key): ParamDescriptor {
 /** The options to offer now: static ones, or for a dependency table the labelled rows for the current deps. */
 export function optionsFor(d: ParamDescriptor, values: ValueReader): readonly EnumOption[] {
   if (d.options !== null) return d.options;
-  if (d.optionSets !== null) return d.optionSets.sets[values.get(d.optionSets.dep)] ?? d.optionSets.fallback;
+  if (d.optionSets !== null) {
+    const o = d.optionSets;
+    const index = o.pick !== null && o.dep2 !== null ? o.pick(values.get(o.dep), values.get(o.dep2)) : values.get(o.dep);
+    return o.sets[index] ?? o.fallback;
+  }
   if (d.deps.length === 0) return [];
   const out: EnumOption[] = [];
   for (let v = d.min; v <= d.max; v++) {

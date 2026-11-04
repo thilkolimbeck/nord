@@ -6,6 +6,9 @@
  *     ns4-editor:v1:slot:<id>    the slot's preset JSON (preset.ts)
  *     ns4-editor:v1:working      the working copy's preset JSON
  *
+ * Slots and the working copy keep the layers' own sample references (`userSamples`, plan 15.3),
+ * never the sample files: those stay in IndexedDB on this device.
+ *
  * Storage can be missing, blocked (private modes, site data off) or full. Every access sits in a
  * try/catch: slot operations throw a StorageError with a readable message, the working copy
  * reports failure by its return value, and nothing here touches the editor's state, so downloads
@@ -13,7 +16,8 @@
  * module stays free of browser globals.
  */
 import type { ProgramSnapshot } from '../model/store.ts';
-import { parsePreset, toPresetJson } from './preset.ts';
+import type { LayerSamples } from '../model/user-samples.ts';
+import { readPreset, readPresetExtras, toPresetJsonWith } from './preset.ts';
 
 /** The part of the Web Storage API used here; window.localStorage satisfies it. */
 export interface StorageLike {
@@ -27,6 +31,29 @@ export interface SlotInfo {
   readonly name: string;
   /** ISO 8601. */
   readonly savedAt: string;
+}
+
+/**
+ * A preset read back from browser storage: the program and the layers' own sample references
+ * (plan 15.3: slots and the working copy carry `userSamples`, never embedded files), with notes
+ * for references that were dropped.
+ */
+export interface StoredPreset {
+  readonly snapshot: ProgramSnapshot;
+  readonly samples: LayerSamples;
+  readonly notes: readonly string[];
+}
+
+/** The JSON a slot or the working copy keeps: one line, the own sample references, no embedded files. */
+function storedJson(snapshot: ProgramSnapshot, appVersion: string, samples: LayerSamples): string {
+  return toPresetJsonWith(snapshot, appVersion, { samples, embedded: new Map() }, 0);
+}
+
+/** Parse a stored preset text; PresetError when the program is invalid (a bad sample reference only adds a note). */
+function readStored(text: string): StoredPreset {
+  const { snapshot, notes } = readPreset(text);
+  const extras = readPresetExtras(text);
+  return { snapshot, samples: extras.samples, notes: [...notes, ...extras.notes] };
 }
 
 export type StorageProblem = 'unavailable' | 'blocked' | 'full' | 'missing' | 'corrupt';
@@ -135,14 +162,17 @@ export class PresetSlots {
     return this.#index().sort((a, b) => (a.savedAt < b.savedAt ? 1 : a.savedAt > b.savedAt ? -1 : 0));
   }
 
-  /** Save under `name`; a slot with the same name is replaced. StorageError when it cannot be written. */
-  save(name: string, snapshot: ProgramSnapshot): SlotInfo {
+  /**
+   * Save under `name` with the layers' own sample references; a slot with the same name is
+   * replaced. StorageError when it cannot be written.
+   */
+  save(name: string, snapshot: ProgramSnapshot, samples: LayerSamples = {}): SlotInfo {
     const index = this.#index();
     const existing = index.find((s) => s.name === name);
     const id = existing?.id ?? String(index.reduce((max, s) => Math.max(max, Number.parseInt(s.id, 10) || 0), 0) + 1);
     const info: SlotInfo = { id, name, savedAt: this.#now().toISOString() };
     const previous = existing === undefined ? null : this.#get(slotKey(id));
-    this.#set(slotKey(id), toPresetJson(snapshot, this.#appVersion, 0));
+    this.#set(slotKey(id), storedJson(snapshot, this.#appVersion, samples));
     try {
       this.#set(INDEX_KEY, JSON.stringify([...index.filter((s) => s.id !== id), info]));
     } catch (err) {
@@ -157,9 +187,14 @@ export class PresetSlots {
 
   /** The snapshot saved in a slot; StorageError when it is gone, PresetError when it is invalid. */
   load(id: string): ProgramSnapshot {
+    return this.loadPreset(id).snapshot;
+  }
+
+  /** A slot's program with its own sample references; errors as `load`. */
+  loadPreset(id: string): StoredPreset {
     const text = this.#get(slotKey(id));
     if (text === null) throw new StorageError('missing');
-    return parsePreset(text);
+    return readStored(text);
   }
 
   /** Remove a slot and its index entry. */
@@ -169,10 +204,10 @@ export class PresetSlots {
     this.#remove(slotKey(id));
   }
 
-  /** Autosave the working copy; returns the problem instead of throwing, null on success. */
-  saveWorkingCopy(snapshot: ProgramSnapshot): StorageProblem | null {
+  /** Autosave the working copy with its own sample references; returns the problem instead of throwing, null on success. */
+  saveWorkingCopy(snapshot: ProgramSnapshot, samples: LayerSamples = {}): StorageProblem | null {
     try {
-      this.#set(WORKING_KEY, toPresetJson(snapshot, this.#appVersion, 0));
+      this.#set(WORKING_KEY, storedJson(snapshot, this.#appVersion, samples));
       return null;
     } catch (err) {
       return err instanceof StorageError ? err.problem : 'blocked';
@@ -181,9 +216,14 @@ export class PresetSlots {
 
   /** The autosaved working copy, or null when there is none, it is unreadable or storage refuses. */
   loadWorkingCopy(): ProgramSnapshot | null {
+    return this.loadWorkingPreset()?.snapshot ?? null;
+  }
+
+  /** The working copy with its own sample references, or null as `loadWorkingCopy`. */
+  loadWorkingPreset(): StoredPreset | null {
     try {
       const text = this.#get(WORKING_KEY);
-      return text === null ? null : parsePreset(text);
+      return text === null ? null : readStored(text);
     } catch {
       return null;
     }

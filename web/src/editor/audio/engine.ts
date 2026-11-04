@@ -9,8 +9,13 @@
  *               vibrato OscillatorNode ─► depth gain ─► every voice (each with its own delay ramp)
  *               bend ConstantSourceNode ─► every voice's pitch
  *               voice ─► xfade GainNode (split gain) ─► layer bus GainNode (level)
- *                     ─► gate GainNode (arpeggiator gate mode) ─► StereoPannerNode (pan) ─► out
- *   out:        the shared MasterBus input (master.ts); without one the engine builds its own
+ *                     ─► gate GainNode (arpeggiator gate mode) ─► StereoPannerNode (pan)
+ *                     ─► the layer's effects chain (fx/types.ts, synth{L}Fx; a pass-through without hooks) ─► out
+ *   out:        the shared output (global effects, then the MasterBus); without one the engine builds its own master
+ *
+ * Voice hooks (sources.ts): source and filter providers (own samples, the AudioWorklet engine) reach
+ * every voice through the layer taps; a layer a source provider covers (samples mode with an own
+ * sample) is not silent.
  *
  * Between the router and the voices sit, per layer (manual p.35–37):
  *
@@ -35,10 +40,12 @@ import { bindingOf, type Effect } from './bindings.ts';
 import { CLOCK_KBD_SYNC, MasterClock, shouldResetClock, type StepGrid } from './clock.ts';
 import {
   type ArpSpec, arpSpec, bendCents, clockBpm, enabledLayers, gateTau, holdOn, layerGain, layerPan, type LfoShape,
-  lfoSpec, lfoSynced, silentReason, vibDepthCents, vibSpec, voicing,
+  lfoSpec, lfoSynced, vibDepthCents, vibSpec, voicing,
 } from './mapping.ts';
+import { fxChainFor, type FxChain, type FxHooks, type FxHost } from './fx/types.ts';
 import { MasterBus } from './master.ts';
 import type { LayerHit, SectionEngine, SectionEvent, SectionFactory } from './section.ts';
+import { layerSilence, NO_HOOKS, type VoiceHooks } from './sources.ts';
 import { VoiceAllocator, type VoiceCommand } from './voice-alloc.ts';
 import { type LayerTaps, Voice, type VoiceUpdate } from './voice.ts';
 import { basic, cycle, rng, toCoefficients } from './waveforms.ts';
@@ -68,6 +75,10 @@ export interface SynthOptions {
   readonly timer?: ArpTimer;
   /** Random source of the arpeggiator's random direction (default Math.random). */
   readonly random?: () => number;
+  /** The layer effects (SectionContext.fx); without them each layer's chain passes through. */
+  readonly fx?: FxHooks;
+  /** Source and filter providers for every voice (own samples, AudioWorklet); default none. */
+  readonly hooks?: VoiceHooks;
 }
 
 /** What a layer's arpeggiator does: nothing, arpeggiate notes, or gate the sound. */
@@ -79,9 +90,10 @@ export interface Controllers {
   pedal: number;
 }
 
-/** One layer's shared nodes: bus, pan, LFO, vibrato and bend. */
+/** One layer's shared nodes: bus, pan, effects chain, LFO, vibrato and bend. */
 class LayerNodes {
   readonly taps: LayerTaps;
+  readonly chain: FxChain;
   readonly #ctx: BaseAudioContext;
   readonly #layer: SynthLayer;
   readonly #bus: GainNode;
@@ -96,14 +108,15 @@ class LayerNodes {
   readonly #vibDepth: GainNode;
   #lfo: { shape: LfoShape; node: OscillatorNode | AudioBufferSourceNode } | null = null;
 
-  constructor(ctx: BaseAudioContext, layer: SynthLayer, out: AudioNode) {
+  constructor(ctx: BaseAudioContext, layer: SynthLayer, out: AudioNode, host: FxHost, hooks: VoiceHooks) {
     this.#ctx = ctx;
     this.#layer = layer;
     this.#bus = ctx.createGain();
     this.#gate = ctx.createGain();
     this.#gate.gain.value = 1;
     this.#pan = ctx.createStereoPanner();
-    this.#bus.connect(this.#gate).connect(this.#pan).connect(out);
+    this.#bus.connect(this.#gate).connect(this.#pan);
+    this.chain = fxChainFor(host, `synth${layer}Fx`, this.#pan, out);
     this.#bend = ctx.createConstantSource();
     this.#bend.offset.value = 0;
     this.#lfoOut = ctx.createGain();
@@ -123,7 +136,7 @@ class LayerNodes {
     this.#vibOsc.start();
     this.taps = {
       bus: this.#bus, pitchMods: [this.#bend, this.#lfoPitch], vibrato: this.#vibDepth,
-      filterMod: this.#lfoFilter, ctrlMod: this.#lfoCtrl,
+      filterMod: this.#lfoFilter, ctrlMod: this.#lfoCtrl, hooks,
     };
   }
 
@@ -192,6 +205,7 @@ class LayerNodes {
     for (const n of [this.#bus, this.#gate, this.#pan, this.#bend, this.#lfoOut, this.#lfoPitch, this.#lfoFilter, this.#lfoCtrl,
       this.#vibOsc, this.#vibDepth]) n.disconnect();
     this.#lfo?.node.disconnect();
+    this.chain.dispose();
   }
 
   #lfoSource(shape: LfoShape): OscillatorNode | AudioBufferSourceNode {
@@ -239,6 +253,7 @@ export class SynthEngine implements SectionEngine<'synth'> {
   /** Each sounding voice's split crossfade GainNode, by voice id. */
   readonly #xfades = new Map<number, GainNode>();
   readonly #ctl: Controllers = { wheel: 0, pressure: 0, pedal: 0 };
+  readonly #hooks: VoiceHooks;
   #bend = 0;
   readonly #handlers: Readonly<Record<Effect, (layer: SynthLayer | null, t: number) => void>>;
   readonly #clock: MasterClock;
@@ -273,10 +288,12 @@ export class SynthEngine implements SectionEngine<'synth'> {
     this.#arps = { A: new ArpScheduler(random), B: new ArpScheduler(random), C: new ArpScheduler(random) };
     this.#ownMaster = out === undefined ? new MasterBus(ctx) : null;
     const dest = out ?? this.#ownMaster!.input;
+    this.#hooks = options.hooks ?? NO_HOOKS;
+    const host: FxHost = options.fx === undefined ? { ctx, values } : { ctx, values, fx: options.fx };
     this.#layers = {
-      A: new LayerNodes(ctx, 'A', dest),
-      B: new LayerNodes(ctx, 'B', dest),
-      C: new LayerNodes(ctx, 'C', dest),
+      A: new LayerNodes(ctx, 'A', dest, host, this.#hooks),
+      B: new LayerNodes(ctx, 'B', dest, host, this.#hooks),
+      C: new LayerNodes(ctx, 'C', dest, host, this.#hooks),
     };
 
     const none = (): void => undefined;
@@ -328,6 +345,16 @@ export class SynthEngine implements SectionEngine<'synth'> {
     return this.#clock;
   }
 
+  /**
+   * Bring the master clock to the stored tempo now (a no-op when it is there already). Readers that
+   * may run before this engine sees a tempo change (the effects chains, earlier in a batch) call it
+   * first, so they never time a delay or an LFO from the previous tempo.
+   */
+  syncClock(): MasterClock {
+    this.#clock.setBpm(clockBpm(this.#values), this.#ctx.currentTime);
+    return this.#clock;
+  }
+
   get context(): BaseAudioContext {
     return this.#ctx;
   }
@@ -376,7 +403,10 @@ export class SynthEngine implements SectionEngine<'synth'> {
         return;
       case 'controller':
         this.#ctl[e.kind] = e.value;
-        for (const l of LAYERS) this.#layers[l].updateVibrato(this.#values, this.#ctl, t);
+        for (const l of LAYERS) {
+          this.#layers[l].updateVibrato(this.#values, this.#ctl, t);
+          this.#layers[l].chain.controller(e.kind, e.value);
+        }
         return;
       case 'panic':
         this.panic();
@@ -386,6 +416,8 @@ export class SynthEngine implements SectionEngine<'synth'> {
 
   /** Follow a batch of store changes; a load or init rebuilds everything after a panic. */
   applyChanges(batch: readonly Change[]): void {
+    // The effects chains read their own block, the effects switches and the clock (a load included).
+    for (const l of LAYERS) this.#layers[l].chain.applyChanges(batch);
     if (batch.some((c) => c.origin === 'load' || c.origin === 'init')) {
       this.reload();
       return;
@@ -394,7 +426,7 @@ export class SynthEngine implements SectionEngine<'synth'> {
     const done = new Set<string>();
     if (batch.some((c) => c.key === 'common.masterClockRate')) {
       // A tempo change: synced arpeggiators read the clock at their next step, synced LFOs follow now.
-      this.#clock.setBpm(clockBpm(this.#values), t);
+      this.syncClock();
       for (const l of LAYERS) this.#layers[l].updateLfo(this.#values, t);
     }
     if (batch.some((c) => c.key === SCENE_KEY)) {
@@ -416,7 +448,7 @@ export class SynthEngine implements SectionEngine<'synth'> {
   /** After a program load: stop every voice and set the layers from the new values. */
   reload(): void {
     this.panic();
-    this.#clock.setBpm(clockBpm(this.#values), this.#ctx.currentTime);
+    this.syncClock();
     this.#refreshLayers();
     for (const l of LAYERS) this.#syncArp(l, this.#ctx.currentTime);
   }
@@ -435,6 +467,7 @@ export class SynthEngine implements SectionEngine<'synth'> {
       this.#latched[l].clear();
       this.#arps[l].reset();
       this.#arpVoices[l].clear();
+      this.#layers[l].chain.silence();
     }
   }
 
@@ -480,7 +513,7 @@ export class SynthEngine implements SectionEngine<'synth'> {
   }
 
   #noteOn(note: number, velocity: number, hits: readonly LayerHit<SynthLayer>[], t: number): void {
-    const playable = hits.filter((h) => silentReason(this.#values, h.layer) === null);
+    const playable = hits.filter((h) => layerSilence(this.#values, h.layer, this.#hooks.sources) === null);
     if (playable.length === 0) return;
     // A restart (KB sync, a master clock reset) must plan its first step on the key, the gate's too.
     let plan = LAYERS.every((l) => this.#keys[l].size === 0) && this.#keyboardSync(playable, t);
@@ -536,7 +569,7 @@ export class SynthEngine implements SectionEngine<'synth'> {
 
   /** Whether a layer can start notes now: on in the active scene and not silent. */
   #playable(l: SynthLayer): boolean {
-    return enabledLayers(this.#values).includes(l) && silentReason(this.#values, l) === null;
+    return enabledLayers(this.#values).includes(l) && layerSilence(this.#values, l, this.#hooks.sources) === null;
   }
 
   /**
@@ -734,5 +767,14 @@ export class SynthEngine implements SectionEngine<'synth'> {
   }
 }
 
-/** The synth as a section of the shared master (plan section 13.5). */
-export const synthFactory: SectionFactory<'synth'> = (c) => new SynthEngine(c.ctx, c.values, undefined, c.out);
+/**
+ * The synth as a section of the shared output (plan sections 13.5 and 15), with voice hooks:
+ * main passes the own-samples and AudioWorklet providers here. The layer effects come from the
+ * context (SectionContext.fx).
+ */
+export function makeSynthFactory(options: Omit<SynthOptions, 'fx'> = {}): SectionFactory<'synth'> {
+  return (c) => new SynthEngine(c.ctx, c.values, undefined, c.out, c.fx === undefined ? options : { ...options, fx: c.fx });
+}
+
+/** The synth as a section of the shared output, without voice hooks (plan section 13.5). */
+export const synthFactory: SectionFactory<'synth'> = makeSynthFactory();

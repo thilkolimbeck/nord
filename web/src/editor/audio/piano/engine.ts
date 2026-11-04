@@ -5,7 +5,7 @@
  * bindings.ts. It approximates the Stage 4 piano types (manual p.24–26) without any Nord sample;
  * it is not the Stage 4 engine.
  *
- *   per layer:  voices ─► input ─► timbre filters ─► level ─► SectionContext.out
+ *   per layer:  voices ─► input ─► timbre filters ─► level ─► effects chain (piano{L}Fx; fx/types.ts) ─► SectionContext.out
  *               voices ─► resonance send ─► comb bank ─► input   (layer.ts)
  *   shared:     one white-noise AudioBuffer for every noise burst; PeriodicWaves and shaper curves cached
  *
@@ -18,6 +18,7 @@ import type { Change } from '../../model/store.ts';
 import type { ValueReader } from '../../model/labels.ts';
 import { enabledLayers } from '../../model/scene.ts';
 import { noise, tanhCurve } from '../waveforms.ts';
+import { type FxChain, fxChainFor, inertChain } from '../fx/types.ts';
 import type { PianoLayer, RoutedNoteOn, SectionContext, SectionEngine, SectionEvent, SectionFactory } from '../section.ts';
 import { bindingOf, type Effect, pianoLayerOf } from './bindings.ts';
 import { PianoLayerNodes } from './layer.ts';
@@ -59,6 +60,8 @@ export class PianoEngine implements SectionEngine<'piano'> {
   readonly #ctx: BaseAudioContext;
   readonly #values: ValueReader;
   readonly #layers: Readonly<Record<PianoLayer, PianoLayerNodes>>;
+  /** Each layer's effects chain, between its level and the section output. */
+  readonly #chains: Readonly<Record<PianoLayer, FxChain>>;
   /** Insertion order is allocation order: the first entry is the oldest voice. */
   readonly #voices = new Map<number, PianoVoice>();
   readonly #waves = new Map<string, PeriodicWave>();
@@ -75,7 +78,16 @@ export class PianoEngine implements SectionEngine<'piano'> {
   constructor(c: SectionContext) {
     this.#ctx = c.ctx;
     this.#values = c.values;
-    this.#layers = { A: new PianoLayerNodes(c.ctx, 'A', c.out), B: new PianoLayerNodes(c.ctx, 'B', c.out) };
+    // With effects hooks each layer's level feeds its chain; without them it feeds the output as before.
+    const layerOut = (layer: PianoLayer): { node: AudioNode; chain: FxChain } => {
+      if (c.fx === undefined) return { node: c.out, chain: inertChain(`piano${layer}Fx`, c.out) };
+      const node = c.ctx.createGain();
+      return { node, chain: fxChainFor(c, `piano${layer}Fx`, node, c.out) };
+    };
+    const a = layerOut('A');
+    const b = layerOut('B');
+    this.#chains = { A: a.chain, B: b.chain };
+    this.#layers = { A: new PianoLayerNodes(c.ctx, 'A', a.node), B: new PianoLayerNodes(c.ctx, 'B', b.node) };
     this.#shared = {
       ctx: c.ctx,
       wave: (spec) => this.#wave(spec),
@@ -148,12 +160,15 @@ export class PianoEngine implements SectionEngine<'piano'> {
         for (const l of PIANO_LAYERS) this.#layers[l].updateBend(this.#values, this.#bend, t);
         return;
       case 'controller':
-        return; // the piano uses no wheel, pressure or control pedal
+        // The piano itself uses no wheel, pressure or control pedal; its effects may (Mod 1 PED, p.49).
+        for (const l of PIANO_LAYERS) this.#chains[l].controller(e.kind, e.value);
+        return;
     }
   }
 
   applyChanges(batch: readonly Change[]): void {
     if (this.#disposed) return;
+    for (const l of PIANO_LAYERS) this.#chains[l].applyChanges(batch);
     if (batch.some((c) => c.origin === 'load' || c.origin === 'init')) {
       this.reload();
       return;
@@ -178,7 +193,10 @@ export class PianoEngine implements SectionEngine<'piano'> {
     this.#voices.clear();
     for (const n of this.#pedalNoises) n.stop(t);
     this.#pedal = false;
-    for (const l of PIANO_LAYERS) this.#layers[l].updateSend(this.#values, false, t);
+    for (const l of PIANO_LAYERS) {
+      this.#layers[l].updateSend(this.#values, false, t);
+      this.#chains[l].silence();
+    }
   }
 
   reload(): void {
@@ -190,7 +208,10 @@ export class PianoEngine implements SectionEngine<'piano'> {
     if (this.#disposed) return;
     this.panic();
     this.#disposed = true;
-    for (const l of PIANO_LAYERS) this.#layers[l].dispose();
+    for (const l of PIANO_LAYERS) {
+      this.#layers[l].dispose();
+      this.#chains[l].dispose();
+    }
   }
 
   #refreshLayers(): void {

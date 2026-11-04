@@ -17,7 +17,7 @@ import { NS4_KEYS, type Ns4Key } from '../../src/editor/model/keys.ts';
 import { ParamStore, type ProgramSnapshot } from '../../src/editor/model/store.ts';
 import { ExportError, exportExperimentalNs4p, ns4pFileName } from '../../src/editor/formats/ns4p-export.ts';
 import { importNs4p } from '../../src/editor/formats/ns4p-import.ts';
-import { toPresetJson } from '../../src/editor/formats/preset.ts';
+import { parsePreset, toPresetJson } from '../../src/editor/formats/preset.ts';
 import { FileActions, type FileLike } from '../../src/editor/ui/files.ts';
 import { CORPUS, RANDOM } from './corpus.ts';
 
@@ -107,6 +107,42 @@ test('an unedited export of an opened 3.13 file keeps its body byte for byte', (
   // A corpus program has bank 0 and location 0, as an export writes them: the whole file comes back.
   const [name, bytes] = OUTPUTS[0]!;
   assert.deepEqual(exportExperimentalNs4p(importNs4p(`${name}.ns4p`, bytes).snapshot).bytes, bytes);
+});
+
+test('aux kb and output settings (now editable, plan 15.8) round trip through the app preset and the export', () => {
+  const AUX_OUT: Array<readonly [Ns4Key, number]> = [
+    ['common.auxKbdEnable', 1], ['common.auxKbdVelCurve', 2], ['organ.auxKbdControl', 3], ['piano.auxKbdControl', 1],
+    ['synth.auxKbdControl', 7], ['common.audioRoutingBusOrg', 2], ['common.audioRoutingBusLeslie', 4],
+    ['common.audioRoutingBusPnoA', 1], ['common.audioRoutingBusPnoB', 0], ['common.audioRoutingBusSynA', 3],
+    ['common.audioRoutingBusSynB', 4], ['common.audioRoutingBusSynC', 2],
+  ];
+  for (const [key, v] of AUX_OUT) {
+    const d = DESCRIPTORS.get(key)!;
+    assert.ok(v >= d.min && v <= d.max, `${key}: ${v} in ${d.min}..${d.max}`);
+  }
+  for (const [name, bytes] of [['init', null] as const, ...OUTPUTS.slice(0, 8)]) {
+    const base = bytes === null ? initProgram() : importNs4p(`${name}.ns4p`, bytes).snapshot;
+    const store = new ParamStore(base);
+    store.setMany(AUX_OUT, 'ui');
+    const s = store.snapshot();
+    // App preset: the values come back as written.
+    const back = new ParamStore(initProgram());
+    back.load(parsePreset(toPresetJson(s, '0.1.0')), 'load');
+    for (const [key, v] of AUX_OUT) assert.equal(back.get(key), v, `${name}: ${key}`);
+    // Export: every field reads back as the snapshot, the undecoded bits as the donor's.
+    const out = exportExperimentalNs4p(s);
+    const program = Ns4Program.fromBytes(out.bytes);
+    assertFieldsEqual(program, s, name);
+    if (bytes !== null) {
+      assertUncoveredEqual(program.body, Ns4Program.fromBytes(bytes).body, name);
+      // Only the touched fields differ from the opened file.
+      const opened = Ns4Program.fromBytes(bytes);
+      for (const key of NS4_KEYS) {
+        if (AUX_OUT.some(([k]) => k === key)) continue;
+        assert.equal(program.value(key), opened.value(key), `${name}: ${key} untouched`);
+      }
+    }
+  }
 });
 
 test('a source kept in an app preset serves as donor after the preset round trip', () => {

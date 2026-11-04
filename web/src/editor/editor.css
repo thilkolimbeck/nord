@@ -103,6 +103,7 @@
   --key-border: #c9c9c2;
   --slot-border: #8f8f88;
   --segment-off: #dcdcd5;
+  --on-accent: #141414;
   --thumb: #141414;
   --kb-white: #ffffff;
   --kb-white-border: #c9c9c2;
@@ -145,6 +146,7 @@
     --key-border: #333333;
     --slot-border: #555555;
     --segment-off: #2d2d2d;
+    --on-accent: #141414;
     --thumb: #e9e9e4;
     --kb-white: #e9e9e4;
     --kb-white-border: #e9e9e4;
@@ -401,6 +403,12 @@ a:hover {
   color: var(--panel-text-2);
 }
 
+/* Why a read-only group stays read-only (the program region's preset refs). */
+.readout-group > .region-note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .readout {
   display: flex;
   justify-content: space-between;
@@ -533,6 +541,39 @@ a:hover {
   border-color: var(--accent-text);
 }
 
+/* Switches (lamp keys, 2026-11-04): every key with a pressed state is a flat unlit key that lights up
+   as a whole when on; its LED is not drawn. Action keys (oct, tap, panic, start audio, files) keep the
+   white key, so the look tells a switch from an action. */
+.bool-key[aria-pressed] {
+  border-color: transparent;
+  background: var(--segment-off);
+}
+
+.bool-key[aria-pressed]:hover {
+  border-color: var(--slot-border);
+}
+
+.bool-key[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.bool-key[aria-pressed] > .led {
+  display: none;
+}
+
+@media (forced-colors: active) {
+  .bool-key[aria-pressed] {
+    border-color: ButtonText;
+  }
+
+  .bool-key[aria-pressed='true'] {
+    background: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+}
+
 /* Unavailable keys (octave at its limit): the key stays, its label fades. */
 .bool-key[aria-disabled='true'] {
   cursor: default;
@@ -564,6 +605,11 @@ a:hover {
   gap: 6px;
 }
 
+/* A layer's on/off toggle stands as tall as its layer key beside it. */
+.layer-cell > .layer-toggle {
+  height: 28px;
+}
+
 .strip-faders {
   display: grid;
   flex: 1 1 360px;
@@ -572,6 +618,7 @@ a:hover {
 }
 
 .strip-switches {
+  --value-floor: 0px;
   display: flex;
   flex-wrap: wrap;
   gap: 6px 16px;
@@ -582,21 +629,42 @@ a:hover {
 }
 
 .synth-groups {
+  --ctl-label: 84px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
   margin-top: 12px;
 }
 
+/* A group stacks its rows on one grid: label | control | value. Each control row spans it as a
+   subgrid, so the value column is as wide as the widest value the group's fields can show (their
+   reserved width, see .ctl-value) and the faders stay aligned and still while values change.
+   Everything else in the group (legend, key rows, notes, the own sample block) spans the row. */
 .synth-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: var(--ctl-label, 64px) minmax(0, 1fr) auto;
+  align-content: start;
+  gap: 6px 8px;
   min-width: 0;
+}
+
+.synth-group > * {
+  grid-column: 1 / -1;
+}
+
+.synth-group > .ctl {
+  grid-template-columns: subgrid;
+}
+
+/* Any group with a morph key keeps the wider label column for all its rows. */
+.synth-group:has(> .ctl > .ctl-head > .morph-key) {
+  --ctl-label: 84px;
 }
 
 /* Program region: one line of groups; split points side by side; compact label and value columns. */
 .program-line {
+  --ctl-label: minmax(0, 64px);
+  --value-floor: 0px;
   display: grid;
   grid-template-columns: auto auto minmax(0, 3fr) minmax(0, 1.2fr) minmax(0, 1.2fr);
   align-items: start;
@@ -613,26 +681,36 @@ a:hover {
   gap: 6px 12px;
 }
 
+.program-line > [data-group='split'] > * {
+  grid-column: auto;
+}
+
 .program-line > [data-group='split'] > .group-legend {
   grid-column: 1 / -1;
 }
 
-.program-line .ctl {
-  grid-template-columns: minmax(0, 64px) minmax(0, 1fr) auto;
-}
-
-/* Program and piano labels wrap instead of truncating: the columns there are too narrow for one line. */
+/* Program, organ and piano labels wrap instead of truncating: the columns there are too narrow for
+   one line. So do the extern · midi labels. */
 .program-line .ctl-label-text,
-.region-piano .ctl-label-text {
+.region-organ .ctl-label-text,
+.region-piano .ctl-label-text,
+.region-extern .ctl-label-text {
   white-space: normal;
   overflow-wrap: anywhere;
 }
 
+/* A split point stacks its key, position and xfade rows on shared columns, as a group does. */
 .split-point {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: var(--ctl-label, 64px) minmax(0, 1fr) auto;
+  align-content: start;
+  gap: 6px 8px;
   min-width: 0;
+}
+
+.split-point > .ctl {
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
 }
 
 .key-row {
@@ -659,9 +737,34 @@ a:hover {
   margin-top: 12px;
 }
 
+/* The organ's rotary group needs the 84px label column (drive has a morph key) and a 74px value
+   column (its widest value with markers) besides the faders: groups narrower than 224px would leave
+   them under 50px, so the organ's groups go two per row first. */
+:where(.region-organ) .region-groups {
+  grid-template-columns: repeat(auto-fit, minmax(min(224px, 100%), 1fr));
+}
+
 .region-live .strip-faders {
   flex-basis: 240px;
   grid-template-columns: minmax(0, 1fr);
+}
+
+/* Desktop: the stacked strip controls (organ model over level) share their columns as a group does,
+   so the select and the fader line up on both edges. */
+@media (min-width: 760px) {
+  .region-live .strip-faders {
+    grid-template-columns: var(--ctl-label, 64px) minmax(0, 1fr) auto;
+    column-gap: 8px;
+  }
+
+  .region-live .strip-faders:has(.morph-key) {
+    --ctl-label: 84px;
+  }
+
+  .region-live .strip-faders > .ctl {
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+  }
 }
 
 /* Drawbars: nine vertical faders, 0 at the top and 8 at the bottom; value above, caption below. */
@@ -737,10 +840,13 @@ a:hover {
   color: var(--legend-panel);
 }
 
-/* Controls: label | control | value, 11px mono. */
+/* Controls: label | control | value, 11px mono. The label column is --ctl-label (64px; 84px
+   where morph keys sit, 88px in extern), the value column at least --value-floor (64px, the
+   approved fader grid; 0 where it was sized to its content) and never narrower than the value
+   cell's reserved width. */
 .ctl {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) 64px;
+  grid-template-columns: var(--ctl-label, 64px) minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 8px;
   min-width: 0;
@@ -764,27 +870,113 @@ a:hover {
   text-overflow: ellipsis;
 }
 
-.morph-dot {
-  flex: none;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--accent);
+/* The label cell: the label, then (fields with morph amounts) the small `m` key. */
+.ctl-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
 }
 
+.ctl-head > .ctl-label {
+  min-width: 0;
+}
+
+/* Morph editing (plan 15.9): the `m` key (LED lit while an amount is set) opens three signed faders.
+   The label column is 84px where morph keys sit (synth and effects groups, and any row with one), so
+   the label keeps room beside the key and the columns stay aligned within a group. */
+.ctl:has(> .ctl-head > .morph-key) {
+  --ctl-label: 84px;
+}
+
+.morph-key {
+  flex: none;
+  height: 16px;
+  min-width: 0;
+  padding: 0 4px;
+  gap: 3px;
+  border-radius: 4px;
+}
+
+.morph-panel {
+  display: flex;
+  flex-direction: column;
+  grid-column: 1 / -1;
+  gap: 4px;
+  padding: 6px 0 6px 8px;
+  border-left: 1px solid var(--panel-hairline);
+}
+
+.morph-row {
+  --value-floor: 40px;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+}
+
+/* The end value stays on one line (cut with an ellipsis, full text in its title). */
+.morph-end {
+  grid-column: 2 / -1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--accent-dim);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* A signed amount: the fill runs from the middle (0) to the value. */
+.fader-signed::-webkit-slider-runnable-track {
+  background: linear-gradient(to right, var(--segment-off) var(--lo, 50%), var(--accent) var(--lo, 50%),
+    var(--accent) var(--hi, 50%), var(--segment-off) var(--hi, 50%));
+}
+
+.fader-signed::-moz-range-progress {
+  background: transparent;
+}
+
+.fader-signed::-moz-range-track {
+  background: linear-gradient(to right, var(--segment-off) var(--lo, 50%), var(--accent) var(--lo, 50%),
+    var(--accent) var(--hi, 50%), var(--segment-off) var(--hi, 50%));
+}
+
+.drawbar .morph-key {
+  margin-top: 2px;
+}
+
+.drawbar-morphs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 420px;
+}
+
+.drawbar-morphs > .morph-panel[hidden] {
+  display: none;
+}
+
+/* The value cell never wraps and reserves the longest value and markers its field can show
+   (--value-ch and --marks-ch, set by ui/controls.ts): one character of the mono face is 1ch plus
+   the 0.03em tracking; 4px between text and markers; 1px for glyphs the face lacks (≈, ←). */
 .ctl-value {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   column-gap: 4px;
-  min-width: 0;
+  min-width: max(var(--value-floor, 64px),
+    calc((var(--value-ch, 0) + var(--marks-ch, 0)) * (1ch + 0.03em) + min(var(--marks-ch, 0), 1) * 4px + 1px));
   text-align: right;
+  white-space: nowrap;
   color: var(--panel-text-2);
   font-variant-numeric: tabular-nums;
 }
 
+/* A last safety net: a text longer than the reserve is cut, never wrapped. */
 .ctl-text {
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ctl-suffix {
+  flex: none;
 }
 
 .ctl[data-nv] .ctl-text,
@@ -794,6 +986,31 @@ a:hover {
 
 .ctl-suffix:empty {
   display: none;
+}
+
+/* Reserved space: every child of a reserve stack sits in the same grid cell, so the stack is as large
+   as its largest child, whichever is shown; a child with data-reserved keeps its space but is not
+   shown (nor read, nor focusable). A row or note that a value shows or hides keeps its place so. */
+.reserve-stack {
+  display: grid;
+}
+
+.reserve-stack > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+[data-reserved] {
+  visibility: hidden;
+}
+
+/* A one-line note of unbounded length (a port name): cut with an ellipsis, whole in its title; it keeps
+   its line while empty. */
+.note-line {
+  min-height: 1lh;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .ctl-stored {
@@ -813,9 +1030,14 @@ a:hover {
   gap: 6px;
 }
 
+/* A mask key keeps its label on one line; the keys wrap as whole keys. */
+.mask > .bool-key {
+  white-space: nowrap;
+}
+
 /* A mask's keys show its state; the value cell keeps only the markers. */
 .ctl-mask {
-  grid-template-columns: 64px minmax(0, 1fr) auto;
+  --value-floor: 0px;
 }
 
 .ctl-mask .ctl-text {
@@ -919,6 +1141,11 @@ a:hover {
   justify-content: flex-start;
 }
 
+/* A select shows its value itself: its value cell reserves only the markers, no 64px floor. */
+.ctl-select {
+  --value-floor: 0px;
+}
+
 /* Keyboard region: T3 fills .keyboard-slot (keys styled in ui/keyboard.css); octave keys in the head. */
 .kb-head {
   justify-content: space-between;
@@ -963,9 +1190,13 @@ a:hover {
   color: var(--paper-text);
 }
 
+.printout-head {
+  flex: none;
+}
+
 .printout-legend,
 .printout-toggle {
-  flex: none;
+  justify-self: start;
   color: var(--paper-legend);
 }
 
@@ -1059,12 +1290,189 @@ a:hover {
   text-transform: lowercase;
 }
 
-/* Medium widths: synth groups two per row before the stack. */
-@media (max-width: 1000px) {
-  .synth-groups {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+/* Program region, second line: the aux keyboard and output routing (stored settings, no sound). */
+.program-stored {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 20px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--panel-hairline);
+}
 
+.program-stored .ctl-label-text {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Layer effects region (plan 15.9): fx on, the FX focus keys, group; the six unit groups two per row
+   only when the half-width region leaves each at least 300px, else one per row. */
+.fx-groups {
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+}
+
+.fx-global-line {
+  margin: 0;
+}
+
+/* Extern · midi region: the midi group and the focused synth layer's extern fields. */
+.midi-groups {
+  margin-top: 8px;
+}
+
+.region-extern {
+  --ctl-label: minmax(0, 88px);
+  --value-floor: 0px;
+}
+
+.controller .drawbar-caption {
+  text-align: center;
+}
+
+.midi-groups .region-note {
+  margin: 0;
+}
+
+.send-all-key[aria-disabled='true'] {
+  cursor: default;
+}
+
+.send-all-key[aria-disabled='true'] > span {
+  opacity: 0.4;
+}
+
+/* Files box: delete keys next to saved presets, the embed switch, the own samples list. */
+.slot-line,
+.sample-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+}
+
+/* A preset or sample name of any length stays on one line: cut with an ellipsis, whole in the title. */
+.slot-name {
+  min-width: 0;
+}
+
+.slot-name > span {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.slot-line > .text-button:last-child,
+.sample-line > .text-button {
+  flex: none;
+}
+
+.own-samples {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sample-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sample-total {
+  margin: 0;
+}
+
+/* The focused synth layer's own sample, inside the oscillator group in samples mode: its rows share
+   the group's columns, so its selects and faders line up with the oscillator's. */
+.sample-layer {
+  display: grid;
+  grid-template-columns: subgrid;
+  gap: 6px 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--panel-hairline);
+}
+
+.sample-layer > * {
+  grid-column: 1 / -1;
+}
+
+.sample-layer > .ctl {
+  grid-template-columns: subgrid;
+}
+
+.sample-layer .region-note {
+  margin: 0;
+}
+
+/* Keyboard region: the controller strip left of the keys; on narrow screens `ctrl` swaps them. */
+/* The keys start and end where the controller faders do: the faders and the white keys are both 96px,
+   so the keys sit one value line (11px × 1.3) plus the column gap (4px) below the strip's top. */
+.kb-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.kb-body > .keyboard-slot {
+  flex: 1 1 auto;
+  margin-top: calc(11px * 1.3 + 4px);
+}
+
+.controllers-slot {
+  flex: none;
+}
+
+.controller-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(44px, max-content));
+  gap: 4px;
+}
+
+/* 0 at the bottom (direction: rtl turns the vertical range around), fill from the bottom up. */
+.fader.controller-input {
+  width: 12px;
+  height: 96px;
+  writing-mode: vertical-lr;
+  direction: rtl;
+}
+
+.controller-input::-webkit-slider-runnable-track {
+  width: 6px;
+  height: 100%;
+  background: linear-gradient(to top, var(--accent) var(--fill, 0%), var(--segment-off) var(--fill, 0%));
+}
+
+.controller-input::-webkit-slider-thumb {
+  margin-top: 0;
+  margin-left: -3px;
+}
+
+.controller-input::-moz-range-track {
+  width: 6px;
+  height: 100%;
+}
+
+.controller-input::-moz-range-progress {
+  width: 6px;
+}
+
+.ctrl-key {
+  display: none;
+}
+
+/* The program line holds its five groups on one line only where each split point has room for its
+   widest select ('+/- 12 semitones', about 234px a point): below, transpose and the master clock
+   move to a second line, and below 1390px the split points take a line of their own. */
+@media (max-width: 1879px) {
+  .program-line {
+    grid-template-columns: auto auto minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1389px) {
   .program-line {
     grid-template-columns: auto minmax(0, 1fr);
   }
@@ -1074,8 +1482,17 @@ a:hover {
   }
 }
 
+/* Medium widths: synth groups two per row before the stack (the effects groups keep their own rule:
+   their region is half as wide). */
+@media (max-width: 1000px) {
+  .synth-groups:where(:not(.fx-groups)) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* Touch: keys, selects, toggles at least 44 x 44px; faders keep their 6px track inside a 44px tall hit
-   area; drawbars 44px wide, scrolling sideways inside the organ region when they do not fit. */
+   area; drawbars and the controller strip's faders 44px wide, the drawbars scrolling sideways inside
+   the organ region when they do not fit. */
 @media (max-width: 759px), (pointer: coarse) {
   .bool-key,
   .layer-key {
@@ -1112,7 +1529,8 @@ a:hover {
     overscroll-behavior-x: contain;
   }
 
-  .fader.drawbar-input {
+  .fader.drawbar-input,
+  .fader.controller-input {
     width: 44px;
   }
 }
@@ -1156,17 +1574,15 @@ a:hover {
     display: none !important;
   }
 
+  /* One group per row: two side by side left about 140px per control on a phone. */
   .synth-groups {
+    grid-template-columns: minmax(0, 1fr);
     gap: 14px 12px;
   }
 
   .program-line,
   .program-line > [data-group='split'] {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .program-line .ctl {
-    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .region-groups {
@@ -1178,12 +1594,19 @@ a:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .ctl {
+  /* Label and value on the first line, the fader, select or key under them. */
+  .ctl,
+  .synth-group,
+  .split-point {
+    --value-floor: 0px;
     grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .ctl {
     row-gap: 4px;
   }
 
-  .ctl > .ctl-label {
+  .ctl > .ctl-head {
     grid-row: 1;
     grid-column: 1;
   }
@@ -1221,5 +1644,56 @@ a:hover {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+}
+
+/* Narrow screens, plan 15.9: extern · midi and layer effects show their controls in one column;
+   the keyboard region's `ctrl` key shows the controller strip in place of the keys. */
+@media (max-width: 759px) {
+  .fx-groups,
+  .program-stored {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ctrl-key {
+    display: inline-flex;
+  }
+
+  .region-keyboard:not(.show-controllers) .controllers-slot,
+  .region-keyboard.show-controllers .keyboard-slot {
+    display: none;
+  }
+
+  .kb-body > .keyboard-slot {
+    margin-top: 0;
+  }
+
+  .controllers-slot {
+    flex: 1 1 auto;
+  }
+
+  .controller-strip {
+    grid-template-columns: repeat(3, minmax(44px, 1fr));
+  }
+
+  .fader.controller-input {
+    width: 44px;
+  }
+
+  .morph-row {
+    --value-floor: 0px;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .morph-end {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Touch: the morph key and the drawbars' morph keys get the 44px hit area too. */
+@media (max-width: 759px), (pointer: coarse) {
+  .morph-key {
+    height: auto;
+    padding: 0 10px;
   }
 }

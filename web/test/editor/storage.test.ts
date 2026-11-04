@@ -5,7 +5,8 @@ import { TEMPLATE_BYTES } from '../../src/ns4/index.ts';
 import { initProgram } from '../../src/editor/model/init.ts';
 import type { ProgramSnapshot } from '../../src/editor/model/store.ts';
 import { importNs4p } from '../../src/editor/formats/ns4p-import.ts';
-import { PresetError } from '../../src/editor/formats/preset.ts';
+import { PresetError, toPresetJson } from '../../src/editor/formats/preset.ts';
+import { sampleRef } from '../../src/editor/model/user-samples.ts';
 import {
   INDEX_KEY, PresetSlots, problemOf, slotKey, StorageError, type StorageLike, WORKING_KEY,
 } from '../../src/editor/formats/storage.ts';
@@ -191,4 +192,50 @@ test('a name-only edit schedules the working-copy autosave', async () => {
     off();
     actions.dispose();
   }
+});
+
+test('slots and the working copy keep the own sample references (plan 15.3), never files', () => {
+  const storage = new FakeStorage();
+  const slots = new PresetSlots(storage, '0.1.0', clock());
+  const hash = `sha256-${'cd'.repeat(32)}`;
+  const samples = { B: { ...sampleRef(hash, 'pad.wav'), root: 48, loop: 'loop' as const, loopStart: 100, loopEnd: 900 } };
+  const slot = slots.save('Pad', edited(10, 'Pad'), samples);
+  const back = slots.loadPreset(slot.id);
+  assert.deepEqual(back.snapshot, edited(10, 'Pad'));
+  assert.deepEqual(back.samples, samples);
+  assert.deepEqual(back.notes, []);
+  assert.deepEqual(slots.load(slot.id), edited(10, 'Pad'), 'load still gives the program alone');
+  const text = storage.items.get(slotKey(slot.id))!;
+  assert.ok(!text.includes('embeddedSamples'), 'no files in browser storage');
+  assert.ok(!text.includes('\n'), 'one line');
+
+  assert.equal(slots.saveWorkingCopy(edited(33, 'work'), samples), null);
+  const working = slots.loadWorkingPreset()!;
+  assert.deepEqual(working.snapshot, edited(33, 'work'));
+  assert.deepEqual(working.samples, samples);
+  assert.deepEqual(slots.loadWorkingCopy(), edited(33, 'work'));
+});
+
+test('without own samples a stored preset is the same text as before section 15', () => {
+  const storage = new FakeStorage();
+  const slots = new PresetSlots(storage, '0.1.0', clock());
+  const slot = slots.save('Pad', edited(10, 'Pad'));
+  assert.equal(storage.items.get(slotKey(slot.id)), toPresetJson(edited(10, 'Pad'), '0.1.0', 0));
+  slots.saveWorkingCopy(edited(33, 'work'), {});
+  assert.equal(storage.items.get(WORKING_KEY), toPresetJson(edited(33, 'work'), '0.1.0', 0));
+  assert.deepEqual(slots.loadPreset(slot.id).samples, {});
+  assert.deepEqual(slots.loadWorkingPreset()!.samples, {});
+});
+
+test('a stored preset with a bad sample reference still loads, with a note', () => {
+  const storage = new FakeStorage();
+  const slots = new PresetSlots(storage, '0.1.0', clock());
+  const slot = slots.save('Pad', edited(10, 'Pad'));
+  const doc = JSON.parse(storage.items.get(slotKey(slot.id))!) as Record<string, unknown>;
+  doc['userSamples'] = { A: { hash: 'nope', name: 'x.wav' } };
+  storage.items.set(slotKey(slot.id), JSON.stringify(doc));
+  const back = slots.loadPreset(slot.id);
+  assert.deepEqual(back.snapshot, edited(10, 'Pad'));
+  assert.deepEqual(back.samples, {});
+  assert.ok(back.notes.length > 0);
 });

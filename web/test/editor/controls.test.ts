@@ -30,7 +30,7 @@ test('every synth control has a working kind; layout regions are readouts', () =
   for (const r of PANEL.filter((x) => x.status === 'live' && x.id !== 'synth')) {
     for (const g of r.groups) {
       for (const key of keysOf(g, null)) {
-        const readOnly = ['presets', 'aux-kb', 'output'].includes(g.id) || key.endsWith('.nameHash');
+        const readOnly = g.id === 'presets' || key.endsWith('.nameHash');
         assert.equal(controlKind(descriptorOf(key)) === 'readout', readOnly, key);
       }
     }
@@ -39,7 +39,14 @@ test('every synth control has a working kind; layout regions are readouts', () =
   assert.equal(controlKind(descriptorOf('synthASound.fltType')), 'select');
   assert.equal(controlKind(descriptorOf('synthASound.fltEnable')), 'key');
   assert.equal(controlKind(descriptorOf('synth.layerEnableSyn_I')), 'mask');
-  assert.equal(controlKind(descriptorOf('synthA.mode')), 'select', 'samples carries a not-implemented marker');
+  assert.equal(controlKind(descriptorOf('synthA.mode')), 'select', 'samples carries an nv marker (own samples only)');
+  // Plan 15.9: the extern and effects regions are live; aux kb and output are editable stored settings.
+  assert.equal(controlKind(descriptorOf('synthBFx.dlyMix')), 'fader');
+  assert.equal(controlKind(descriptorOf('organFx.rvbType')), 'select');
+  assert.equal(controlKind(descriptorOf('synthC.externEnable')), 'key');
+  assert.equal(controlKind(descriptorOf('synthA.externCCNumber1')), 'select');
+  assert.equal(controlKind(descriptorOf('common.audioRoutingBusLeslie')), 'select');
+  assert.equal(controlKind(descriptorOf('common.auxKbdEnable')), 'key');
 });
 
 test('a live value shows the Stage 4 label with its unit and no markers', () => {
@@ -64,7 +71,12 @@ test('unverified, stored and coarse values carry their markers and notes', () =>
   const angle = descriptorOf('organ.leslieRotorAngle');
   assert.ok(/stored setting, no sound: /.test(descriptionText(angle, 0, s)), 'the default stored line');
   const dyn = descriptorOf('synthASound.smpDynamic');
-  assert.ok(/samples mode only · not implemented \(no nord samples\): /.test(descriptionText(dyn, 0, s)));
+  assert.ok(/not verified: acts on an own sample in samples mode/.test(descriptionText(dyn, 0, s)));
+  const bus = descriptorOf('common.audioRoutingBusSynB');
+  assert.ok(/stored setting, no sound: buses route the stage 4's physical outputs/.test(descriptionText(bus, 4, s)));
+  assert.equal(valueView(bus, 4, s).text, '← prev layer');
+  const swell = descriptorOf('synthA.externSwellPedalEnable');
+  assert.ok(/stored setting, not sent: the editor has no swell pedal/.test(descriptionText(swell, 1, s)));
 
   const drive = descriptorOf('synthASound.fltDrive');
   assert.deepEqual(valueView(drive, 2, s).suffixes, ['nv', 'coarse']);
@@ -139,8 +151,8 @@ test('display lines name layer, label, value, range, status and edits', () => {
   assert.equal(displayParamLine(descriptorOf('common.sectionEnableSyn_I'), 1, s), 'synth · synth on · on · off–on');
   assert.equal(displayStateLine(freq, 127, s, 2), 'live · edited 2');
   assert.equal(displayStateLine(descriptorOf('synthASound.fltRes'), 10, s, 0), 'not verified · edited 0');
-  assert.equal(displayStateLine(descriptorOf('synthASound.smpTimbre'), 0, s, 1),
-    'samples mode only · not implemented (no nord samples) · edited 1');
+  assert.equal(displayStateLine(descriptorOf('synthASound.smpTimbre'), 0, s, 1), 'not verified · edited 1');
+  assert.equal(displayStateLine(descriptorOf('common.auxKbdEnable'), 0, s, 1), 'stored setting, no sound · edited 1');
   assert.equal(displayStateLine(descriptorOf('synthA.arpRun'), 0, s, 1), 'live · edited 1');
   assert.equal(displayStateLine(null, 0, s, 0), 'edited 0');
 });

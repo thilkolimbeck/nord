@@ -14,7 +14,7 @@
  * section and layer switches do not cut sounding notes (assumed; the manual promises switching
  * "instantly and seamlessly", p.43). No Web Audio, no DOM.
  */
-import type { PlayEvent } from '../input/events.ts';
+import type { NoteSource, PlayEvent } from '../input/events.ts';
 import type { Ns4Key } from '../model/keys.ts';
 import { ns4Label, type ValueReader } from '../model/labels.ts';
 import { enabledLayers, type LayerOf, parseSceneKey, SCENE_KEY, SECTIONS, type SectionId } from '../model/scene.ts';
@@ -212,7 +212,7 @@ export class Router {
   handle(e: PlayEvent): void {
     switch (e.type) {
       case 'noteOn':
-        this.#noteOn(e.note, e.velocity);
+        this.#noteOn(e.note, e.velocity, e.source);
         return;
       case 'noteOff':
         this.#release(e.note);
@@ -261,7 +261,7 @@ export class Router {
     for (const engine of this.#each()) engine.dispose();
   }
 
-  #noteOn(key: number, velocity: number): void {
+  #noteOn(key: number, velocity: number, source: NoteSource): void {
     // A key pressed again without its note off: end the earlier note first, so nothing hangs.
     this.#release(key);
     const routing = routeNote(this.#values, key);
@@ -271,27 +271,27 @@ export class Router {
     for (const [other, h] of this.#held) if (h.note === note) this.#release(other);
     const sections: SectionId[] = [];
     for (const route of routing.routes) {
-      const sent = this.#send(route, key, note, velocity);
+      const sent = this.#send(route, key, note, velocity, source);
       if (sent) sections.push(route.section);
     }
     if (sections.length > 0) this.#held.set(key, { note, sections });
   }
 
-  #send(route: AnySectionRoute, key: number, note: number, velocity: number): boolean {
+  #send(route: AnySectionRoute, key: number, note: number, velocity: number, source: NoteSource): boolean {
     switch (route.section) {
       case 'organ': {
         const engine = this.#engines.organ;
-        engine?.handle({ type: 'noteOn', key, note, velocity, layers: route.layers });
+        engine?.handle({ type: 'noteOn', key, note, velocity, layers: route.layers, source });
         return engine !== undefined;
       }
       case 'piano': {
         const engine = this.#engines.piano;
-        engine?.handle({ type: 'noteOn', key, note, velocity, layers: route.layers });
+        engine?.handle({ type: 'noteOn', key, note, velocity, layers: route.layers, source });
         return engine !== undefined;
       }
       case 'synth': {
         const engine = this.#engines.synth;
-        engine?.handle({ type: 'noteOn', key, note, velocity, layers: route.layers });
+        engine?.handle({ type: 'noteOn', key, note, velocity, layers: route.layers, source });
         return engine !== undefined;
       }
     }

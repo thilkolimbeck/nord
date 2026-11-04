@@ -3,8 +3,10 @@
  * groups inside them, and HIDDEN for fields that are stored and exported but have no control
  * (reserved bits, scene II copies, morph amounts, opaque hashes and pattern masks). Every layout
  * key belongs to exactly one group or to HIDDEN (sections.test.ts). The program, organ, piano and
- * synth regions play (plan section 13.1; the rotary is a group of the organ region); extern and
- * the layer effects are layout only and show read-only values.
+ * synth regions play (plan section 13.1; the rotary is a group of the organ region); since plan
+ * section 15 the extern region (with the MIDI settings) and the layer effects play too, and the
+ * program region's aux keyboard and output groups are stored settings (editable, no sound). Only
+ * the preset references stay read-only.
  */
 import { expandPattern, isNs4Key, LAYER_TOKEN, layerKey, NS4_KEYS, type Ns4Key, type SynthLayer } from './keys.ts';
 
@@ -78,11 +80,11 @@ export const PANEL: readonly Region[] = [
           'common.synPresetLayerCntA', 'common.synPresetLayerCntB', 'common.synPresetLayerCntC'],
       },
       {
-        id: 'aux-kb', title: 'aux kb', status: 'layout', keys: ['common.auxKbdEnable', 'common.auxKbdVelCurve',
+        id: 'aux-kb', title: 'aux kb', status: 'stored', keys: ['common.auxKbdEnable', 'common.auxKbdVelCurve',
           'organ.auxKbdControl', 'piano.auxKbdControl', 'synth.auxKbdControl'],
       },
       {
-        id: 'output', title: 'output', status: 'layout', keys: ['common.audioRoutingBusOrg',
+        id: 'output', title: 'output', status: 'stored', keys: ['common.audioRoutingBusOrg',
           'common.audioRoutingBusLeslie', 'common.audioRoutingBusPnoA', 'common.audioRoutingBusPnoB',
           'common.audioRoutingBusSynA', 'common.audioRoutingBusSynB', 'common.audioRoutingBusSynC'],
       },
@@ -162,22 +164,22 @@ export const PANEL: readonly Region[] = [
     ],
   },
   {
-    id: 'extern', title: 'extern', status: 'layout', groups: [
-      { id: 'extern', title: 'extern', status: 'layout', keys: EXTERN.map((p) => `${Y}${p}`) },
+    id: 'extern', title: 'extern', status: 'live', groups: [
+      { id: 'extern', title: 'extern', status: 'live', keys: EXTERN.map((p) => `${Y}${p}`) },
     ],
   },
   {
-    id: 'effects', title: 'layer effects', status: 'layout', groups: [
+    id: 'effects', title: 'layer effects', status: 'live', groups: [
       {
-        id: 'fx-global', title: 'effects', status: 'layout', keys: ['common.fxEnable', 'common.fxSectionFocus',
+        id: 'fx-global', title: 'effects', status: 'live', keys: ['common.fxEnable', 'common.fxSectionFocus',
           'common.effectsDlyGlobal', 'common.effectsCmpGlobal', 'common.effectsRvbGlobal',
           'piano.effectsSectionModePno', 'piano.fxLayerFocusPno', 'synth.effectsSectionModeSyn',
           'synth.fxLayerFocusSyn'],
       },
-      { id: 'organ-fx', title: 'organ fx', status: 'layout', keys: FX.map((p) => `organFx.${p}`) },
-      { id: 'piano-a-fx', title: 'piano a fx', status: 'layout', keys: FX.map((p) => `pianoAFx.${p}`) },
-      { id: 'piano-b-fx', title: 'piano b fx', status: 'layout', keys: FX.map((p) => `pianoBFx.${p}`) },
-      { id: 'synth-fx', title: 'synth fx', status: 'layout', keys: FX.map((p) => `synth${L}Fx.${p}`) },
+      { id: 'organ-fx', title: 'organ fx', status: 'live', keys: FX.map((p) => `organFx.${p}`) },
+      { id: 'piano-a-fx', title: 'piano a fx', status: 'live', keys: FX.map((p) => `pianoAFx.${p}`) },
+      { id: 'piano-b-fx', title: 'piano b fx', status: 'live', keys: FX.map((p) => `pianoBFx.${p}`) },
+      { id: 'synth-fx', title: 'synth fx', status: 'live', keys: FX.map((p) => `synth${L}Fx.${p}`) },
     ],
   },
 ];

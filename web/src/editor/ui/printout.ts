@@ -22,10 +22,15 @@ export function mountPrintout(root: HTMLElement): PrintoutApi {
   const toggle = h('button', { class: 'text-button legend printout-toggle', type: 'button', 'aria-expanded': 'false',
     'aria-controls': list.id, hidden: true });
   const announce = h('p', { class: 'visually-hidden', 'aria-live': 'polite' });
+  // Legend and toggle share one cell sized for the widest title, so the lines beside them never
+  // shift when the toggle appears or its count grows (up to three digits).
+  const sizer = h('span', { class: 'text-button legend', 'data-reserved': true, 'aria-hidden': 'true' },
+    'print-out · error (000)');
+  const head = h('div', { class: 'printout-head reserve-stack' }, legend, toggle, sizer);
   root.classList.add('printout');
   root.setAttribute('role', 'region');
   root.setAttribute('aria-label', 'print-out');
-  root.replaceChildren(legend, toggle, list, announce);
+  root.replaceChildren(head, list, announce);
 
   let title = 'print-out';
   let count = 1;

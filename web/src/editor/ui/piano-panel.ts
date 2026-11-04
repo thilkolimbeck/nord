@@ -41,7 +41,8 @@ export function mountPianoPanel(root: HTMLElement, store: ParamStore, onTouch: O
   let bankKey: Ns4Key = boundKey('piano', 'pianoA.bank', store);
   let bankOff: (() => void) | null = null;
   const showVariation = (): void => {
-    variation.el.hidden = !variationUsed(store.get(bankKey));
+    // Elsewhere its row keeps its place empty, so the rows below never move.
+    variation.el.toggleAttribute('data-reserved', !variationUsed(store.get(bankKey)));
   };
   kit.onRebind(() => {
     bankKey = boundKey('piano', bankKey, store);

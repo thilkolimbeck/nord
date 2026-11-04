@@ -7,6 +7,7 @@ import {
   clampValue, descriptorOf, DESCRIPTORS, formatValue, optionsFor, type ParamDescriptor, toSi, verified,
 } from '../../src/editor/model/descriptors.ts';
 import { initProgram } from '../../src/editor/model/init.ts';
+import { ParamStore } from '../../src/editor/model/store.ts';
 import { expandPattern, LAYERS, NS4_KEYS, type Ns4Key } from '../../src/editor/model/keys.ts';
 import type { ValueReader } from '../../src/editor/model/labels.ts';
 
@@ -44,8 +45,8 @@ test('the synth control set matches plan sections 3.2 and 14', () => {
     const controls = synthControls(layer);
     const count = (status: string): number => controls.filter((d) => d.status === status).length;
     // kb zone is live since the router plays zones (plan section 13.1); the arpeggiator, mst clk and kb hold
-    // since plan section 14; only the two samples options stay stored.
-    assert.deepEqual([count('live'), count('unverified'), count('stored'), controls.length], [37, 20, 2, 59], layer);
+    // since plan section 14; the two samples options act on an own sample since plan section 15.3 (unverified).
+    assert.deepEqual([count('live'), count('unverified'), count('stored'), controls.length], [37, 22, 0, 59], layer);
   }
   // Section: on, layer mask, focus, level and pan of A, B and C, the three groups and kb hold (13 controls).
   const section = synthControls(null);
@@ -61,16 +62,22 @@ test('the synth control set matches plan sections 3.2 and 14', () => {
   });
 });
 
-const LIVE_REGIONS = new Set(['program', 'organ', 'piano', 'synth']);
-const READ_ONLY_GROUPS = new Set(['presets', 'aux-kb', 'output']);
+const LIVE_REGIONS = new Set(['program', 'organ', 'piano', 'synth', 'extern', 'effects']);
+const READ_ONLY_GROUPS = new Set(['presets']);
+const STORED_GROUPS = new Set(['aux-kb', 'output']);
+const MORPH = /\.morph(?:Wheel|AfterTouch|CtrlPedal)$/;
 
-test('statuses: live regions curated, read-only groups and other regions layout, hidden synth data stored', () => {
+test('statuses: live regions curated, read-only groups layout, stored groups stored, morphs play, hidden synth data stored', () => {
   for (const d of DESCRIPTORS.values()) {
     if (d.region === null) {
       assert.equal(d.group, null);
-      if (!/_II$/.test(d.key)) assert.ok(d.status === 'stored' || d.status === 'layout', d.key);
+      // Morph amounts play since plan section 15.2, their scaling assumed.
+      if (MORPH.test(d.key)) assert.equal(d.status, 'unverified', d.key);
+      else if (!/_II$/.test(d.key)) assert.ok(d.status === 'stored' || d.status === 'layout', d.key);
     } else if (!LIVE_REGIONS.has(d.region) || READ_ONLY_GROUPS.has(d.group!)) {
       assert.equal(d.status, 'layout', d.key);
+    } else if (STORED_GROUPS.has(d.group!)) {
+      assert.equal(d.status, 'stored', d.key);
     } else {
       assert.notEqual(d.status, 'layout', d.key);
     }
@@ -78,10 +85,65 @@ test('statuses: live regions curated, read-only groups and other regions layout,
       if (d.region !== null && LIVE_REGIONS.has(d.region)) assert.ok(d.note !== null && d.note.length > 0, `${d.key} needs a note`);
     }
   }
-  assert.equal(descriptorOf('synthASound.fltFreq.morphWheel').status, 'stored');
-  assert.equal(descriptorOf('synthAFx.rvbAmt.morphWheel').status, 'layout');
-  assert.equal(descriptorOf('organFx.rvbEnable').status, 'layout');
-  assert.equal(descriptorOf('pianoBFx.dlyEnable').status, 'layout');
+  assert.equal(descriptorOf('synthASound.fltFreq.morphWheel').status, 'unverified');
+  assert.equal(descriptorOf('synthAFx.rvbAmt.morphWheel').status, 'unverified');
+  assert.ok(/signed delta in stored steps, assumed/.test(descriptorOf('organADrawbars.org_Preset_kDb3.morphCtrlPedal').note!));
+  assert.equal(descriptorOf('organFx.rvbEnable').status, 'live');
+  assert.equal(descriptorOf('pianoBFx.dlyEnable').status, 'live');
+});
+
+test('statuses of the effects, extern and samples fields (plan section 15.10)', () => {
+  const count = (block: string, status: string): number =>
+    [...DESCRIPTORS.values()].filter((d) => d.key.startsWith(`${block}.`) && !MORPH.test(d.key) && d.status === status).length;
+  for (const block of ['organFx', 'pianoAFx', 'pianoBFx', 'synthAFx', 'synthBFx', 'synthCFx']) {
+    assert.deepEqual([count(block, 'live'), count(block, 'unverified')], [12, 20], block);
+  }
+  const status = (key: Ns4Key): string => descriptorOf(key).status;
+  assert.deepEqual(['common.fxEnable', 'piano.fxLayerFocusPno', 'synth.fxLayerFocusSyn'].map((k) => status(k as Ns4Key)),
+    ['live', 'live', 'live']);
+  assert.deepEqual(['common.fxSectionFocus', 'piano.effectsSectionModePno', 'synth.effectsSectionModeSyn',
+    'common.effectsDlyGlobal', 'common.effectsCmpGlobal', 'common.effectsRvbGlobal'].map((k) => status(k as Ns4Key)),
+  ['unverified', 'unverified', 'unverified', 'unverified', 'unverified', 'unverified']);
+  const ext = (p: string): string => status(`synthB.${p}` as Ns4Key);
+  assert.deepEqual(['externEnable', 'externModWheelEnable', 'externAftertouchEnable', 'externCtrlPedalEnable',
+    'externCCValue1', 'externCCValue2', 'externSendOnLoad', 'externPCValue'].map(ext), Array(8).fill('live'));
+  assert.deepEqual(['externVelCurve', 'externCCNumber1', 'externCCNumber2', 'externBCValue_MSB', 'externBCValue_LSB']
+    .map(ext), Array(5).fill('unverified'));
+  assert.deepEqual(['externSwellPedalEnable', 'externVolPedalEnable'].map(ext), ['stored', 'stored']);
+  assert.equal(status('synthA.mode'), 'live');
+  assert.equal(descriptorOf('synthA.mode').options!.find((o) => o.value === 0)!.status, 'unverified');
+  assert.equal(status('synthCSound.smpDynamic'), 'unverified');
+  assert.equal(status('synthCSound.smpTimbre'), 'unverified');
+});
+
+test('labels of the aux keyboard, output, extern and rate fields', () => {
+  const s = new ParamStore(initProgram());
+  const text = (key: Ns4Key, v: number): string => formatValue(descriptorOf(key), v, s).text;
+  assert.deepEqual([0, 1, 2].map((v) => text('common.auxKbdVelCurve', v)), ['soft', 'medium', 'hard']);
+  assert.deepEqual([0, 3].map((v) => text('piano.auxKbdControl', v)), ['--', 'AB']);
+  assert.deepEqual([0, 5, 7].map((v) => text('synth.auxKbdControl', v)), ['---', 'A-C', 'ABC']);
+  assert.deepEqual([0, 3, 4, 5].map((v) => text('common.audioRoutingBusLeslie', v)), ['Main', 'Sub III', '← organ', 'Auto']);
+  assert.equal(text('common.audioRoutingBusPnoB', 4), '← prev layer');
+  assert.deepEqual([0, 1, 120].map((v) => text('synthA.externCCNumber1', v)), ['off', 'CC 0', 'CC 119']);
+  assert.deepEqual([0, 1, 128].map((v) => text('synthA.externBCValue_MSB', v)), ['--', '0', '127']);
+  assert.deepEqual([0, 1, 2].map((v) => text('synthA.externVelCurve', v)), ['soft', 'mid', 'hard']);
+  // Mod 1 rate: free Hz, a division with Mst Clk, the RM pitch, the A-Wah sensitivity (plan 15.9).
+  assert.equal(text('organFx.fx1RateClkDiv', 0), '0.10 Hz');
+  s.set('organFx.fx1ClkEnable', 1);
+  assert.equal(text('organFx.fx1RateClkDiv', 0), '8/1');
+  s.set('organFx.fx1Type', 4);
+  assert.equal(text('organFx.fx1RateClkDiv', 0), '20.0 Hz');
+  s.set('organFx.fx1Type', 6);
+  assert.equal(text('organFx.fx1RateClkDiv', 127), 'sens 10.0');
+  assert.deepEqual(descriptorOf('organFx.fx1RateClkDiv').deps, ['organFx.fx1Type', 'organFx.fx1ClkEnable']);
+  // Delay tempo: free time, or a division with Mst Clk.
+  assert.equal(text('synthBFx.dlyRateClkDiv', 0), '10 ms');
+  assert.equal(text('synthBFx.dlyRateClkDiv', 16383), '2.50 s');
+  s.set('synthBFx.dlyClkEnable', 1);
+  assert.equal(text('synthBFx.dlyRateClkDiv', 11008), '1/8D');
+  assert.equal(text('pianoAFx.ampMid', -60), '-15.0 dB');
+  s.set('pianoAFx.ampTypeNew', 8);
+  assert.equal(text('pianoAFx.ampMid', 60), 'res 10.0');
 });
 
 test('statuses of the organ, piano and program fields (plan sections 13.2–13.4)', () => {
@@ -100,9 +162,10 @@ test('statuses of the organ, piano and program fields (plan sections 13.2–13.4
       'organ.vibratoTypeB3', 'organ.vibratoTypeVox', 'organ.vibratoTypeFarfisa', 'organ.effectsLeslieSpeed',
       'organ.effectsLeslieDrv', 'organ.leslieMicDistance', 'pianoA.variation', 'pianoB.acoustic', 'pianoA.pedalNoise',
       'pianoB.kbdTouch', 'pianoA.dynComp', 'pianoB.unison', 'pianoA.eq', 'common.masterClockKbdSync'],
-    stored: ['common.pdlLayerSceneEnable', 'common.pdlTapEnable', 'organA.presetEnable', 'organ.leslieStopPreset', 'organ.leslieRotorAngle', 'organ.leslieHornAngle', 'pianoB.entry'],
-    layout: ['common.orgPresetPos', 'common.synPresetLayerCntC', 'common.auxKbdEnable', 'organ.auxKbdControl',
-      'piano.auxKbdControl', 'common.audioRoutingBusLeslie', 'piano.effectsSectionModePno', 'organFx.ampDrive'],
+    stored: ['common.pdlLayerSceneEnable', 'common.pdlTapEnable', 'organA.presetEnable', 'organ.leslieStopPreset',
+      'organ.leslieRotorAngle', 'organ.leslieHornAngle', 'pianoB.entry', 'common.auxKbdEnable', 'organ.auxKbdControl',
+      'piano.auxKbdControl', 'common.audioRoutingBusLeslie'],
+    layout: ['common.orgPresetPos', 'common.synPresetLayerCntC'],
   };
   for (const [want, keys] of Object.entries(expect)) for (const k of keys) assert.equal(status(k), want, k);
 });
@@ -177,7 +240,7 @@ test('option status marks what the MVP cannot play', () => {
   assert.equal(status('synthBSound.oscBank', 1), 'unverified');
   assert.equal(status('synthBSound.oscBank', 0), undefined);
   assert.equal(status('synthCSound.fltType', 2), 'unverified');
-  assert.equal(status('synthA.mode', 0), 'layout');
+  assert.equal(status('synthA.mode', 0), 'unverified', 'samples: own samples only (plan 15.3)');
   assert.equal(status('organ.leslieStopPreset', 7), 'unverified');
 });
 
