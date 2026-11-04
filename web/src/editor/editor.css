@@ -1412,6 +1412,7 @@ a:hover {
 .kb-body {
   display: flex;
   align-items: flex-start;
+  margin-top: 10px;
   gap: 12px;
   min-width: 0;
 }
@@ -1558,9 +1559,12 @@ a:hover {
       max(12px, env(safe-area-inset-left));
   }
 
+  /* Phones: no panel frame; the page's 12px gutter is the only margin, so the regions get the width. */
   .panel {
-    padding: 12px;
+    padding: 0;
+    border: 0;
     border-radius: 0;
+    background: transparent;
   }
 
   .row-display,

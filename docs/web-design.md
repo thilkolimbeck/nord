@@ -77,7 +77,7 @@ Desktop (≥ 760px): body margin 0, page padding 20px (plus the safe-area insets
 
 Narrow screens (< 760px; checked at 375×812 and 390×844):
 
-- Page padding 12px (plus safe areas), panel radius 0, panel padding 12px.
+- Page padding 12px (plus safe areas); the panel has no frame (no border, radius, padding or fill, 2026-11-04), so the regions use the full width inside the page gutter.
 - One column, in this order: display and files, synth, organ, piano, program, extern and layer effects (legend + badge only), keyboard, print-out, colophon. `ui/panel.ts` reorders the DOM on the breakpoint (matchMedia), so the tab order follows the screen.
 - The keyboard region sticks to the bottom of the viewport (`position: sticky; bottom: 0`, panel background, safe-area padding below); its legend line is cut with an ellipsis so the octave keys stay on the same line; about 1.5 octaves (11 white keys) are visible, the rest scrolls inside the region. `scroll-padding-bottom` keeps focused controls clear of it.
 - The page never scrolls sideways (`scrollWidth === clientWidth`); wide content scrolls inside its region (keyboard, drawbars).

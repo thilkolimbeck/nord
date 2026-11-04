@@ -58,3 +58,49 @@
   border: 1px solid var(--accent-text);
   background: transparent;
 }
+
+/* Phones: the strip takes the whole width below the legend text, as a fixed grid of two 44px rows:
+   the lights on the left, the keys right-aligned in one column, panic beside the audio row.
+     ● audio ·········· [start audio] [panic]
+     ● midi ··········· [enable midi]
+   The reserved widths of the desktop strip would only show as holes here; a key appearing or going
+   leaves its row's height alone. */
+@media (max-width: 759px) {
+  .status-strip {
+    display: grid;
+    flex-basis: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .status-audio,
+  .status-midi {
+    min-width: 0;
+    grid-column: 1;
+    justify-content: flex-start;
+  }
+
+  .status-audio {
+    grid-row: 1;
+  }
+
+  .status-midi {
+    grid-row: 2;
+  }
+
+  .status-panic {
+    grid-row: 1;
+    grid-column: 2;
+  }
+
+  .status-item .status-word {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .status-item > .status-key {
+    margin-left: auto;
+  }
+}
