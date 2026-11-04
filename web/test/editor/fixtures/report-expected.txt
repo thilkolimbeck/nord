@@ -9,6 +9,8 @@ baseline: the editor's init program (Stage 4 layout defaults, synth on, layer A 
 program · transpose
   transpose on                  on                                init off
   transpose                     -2 semitones                      init 1 semitones
+program · master clock
+  tap pedal                     on [not implemented]              init off
 organ · organ a
   drawbar 1                     3                                 init 8
 synth · layers
@@ -22,7 +24,7 @@ synth · layer a · amp env
   attack                        126 ms                            init 3.0 ms
   release                       1.13 s                            init 3.0 ms
 synth · layer a · arp
-  run                           on [not implemented]              init off
+  run                           on                                init off
 synth · layer b · oscillator
   mode                          samples [not implemented]         init analog
   type                          4 (WAVE) [not implemented]        init 1 (ANALOG)
@@ -34,4 +36,4 @@ no control
 no control · layer a
   freq · wheel morph            +40 [not verified] [not implemented]  init 0
 
-16 changed values
+17 changed values

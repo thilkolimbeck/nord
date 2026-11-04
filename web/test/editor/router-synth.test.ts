@@ -79,7 +79,9 @@ test('each voice carries its hit\'s crossfade gain between the voice and the lay
   assert.ok(xfade !== undefined);
   const [bus] = [...xfade.outputs];
   assert.ok(bus instanceof FakeGain, 'the xfade gain feeds the layer bus');
-  assert.ok([...bus.outputs].some((n) => n instanceof FakeStereoPanner));
+  const [gate] = [...bus.outputs];
+  assert.ok(gate instanceof FakeGain, 'the layer bus feeds the arpeggiator gate');
+  assert.ok([...gate.outputs].some((n) => n instanceof FakeStereoPanner));
 });
 
 test('the crossfade gain is fixed at note-on and freed when the voice ends', () => {

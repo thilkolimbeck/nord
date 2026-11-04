@@ -9,16 +9,33 @@
  *               vibrato OscillatorNode ─► depth gain ─► every voice (each with its own delay ramp)
  *               bend ConstantSourceNode ─► every voice's pitch
  *               voice ─► xfade GainNode (split gain) ─► layer bus GainNode (level)
- *                     ─► StereoPannerNode (pan) ─► out
+ *                     ─► gate GainNode (arpeggiator gate mode) ─► StereoPannerNode (pan) ─► out
  *   out:        the shared MasterBus input (master.ts); without one the engine builds its own
+ *
+ * Between the router and the voices sit, per layer (manual p.35–37):
+ *
+ * - KB hold: with KB Hold on and the layer included, a key-up keeps the note; the next key on the
+ *   layer after all its keys were lifted releases the kept notes first (a new chord replaces the
+ *   old one; while keys are down, new notes join). Panic and KB Hold off release them.
+ * - The arpeggiator (arp.ts): with Arp Run in Arp or Poly mode the layer's held notes feed the
+ *   scheduler instead of starting voices; tick() (every 25 ms while an arpeggiator runs, with a
+ *   100 ms horizon) plays its note events at their times on the layer. In Gate mode notes play
+ *   directly and the scheduler opens and closes the layer's gate GainNode on every step.
+ *   A layer that is off or silent starts no arpeggio notes; switching it off releases its KB hold notes.
+ * - The master clock (clock.ts): the synced arpeggiators' step grid and the synced LFOs' rate; its
+ *   keyboard sync resets it at the first synth key after all synth keys were lifted.
  */
 import type { PlayEvent } from '../input/events.ts';
-import { LAYERS, layerOf, type SynthLayer } from '../model/keys.ts';
+import { LAYERS, layerKey, layerOf, type SynthLayer } from '../model/keys.ts';
 import type { ValueReader } from '../model/labels.ts';
+import { focusedLayer, SCENE_KEY } from '../model/scene.ts';
 import type { Change } from '../model/store.ts';
+import { type ArpEvent, type ArpHeld, type ArpMode, ArpScheduler } from './arp.ts';
 import { bindingOf, type Effect } from './bindings.ts';
+import { CLOCK_KBD_SYNC, MasterClock, shouldResetClock, type StepGrid } from './clock.ts';
 import {
-  bendCents, enabledLayers, layerGain, layerPan, type LfoShape, lfoSpec, silentReason, vibDepthCents, vibSpec, voicing,
+  type ArpSpec, arpSpec, bendCents, clockBpm, enabledLayers, gateTau, holdOn, layerGain, layerPan, type LfoShape,
+  lfoSpec, lfoSynced, silentReason, vibDepthCents, vibSpec, voicing,
 } from './mapping.ts';
 import { MasterBus } from './master.ts';
 import type { LayerHit, SectionEngine, SectionEvent, SectionFactory } from './section.ts';
@@ -30,6 +47,31 @@ const SMOOTH = 0.01;
 /** Sample-and-hold LFO: 64 random steps of 256 samples each, looped; the playback rate sets the step rate. */
 const SH_STEPS = 64;
 const SH_STEP_SAMPLES = 256;
+/** Arpeggiator scheduling: a tick every 25 ms plans the next 100 ms on the audio clock. */
+export const ARP_TICK_MS = 25;
+export const ARP_HORIZON = 0.1;
+/** How many recent arpeggiator events arpLog() keeps, for inspection. */
+const ARP_LOG = 256;
+
+/** The periodic callback that drives tick(); tests pass a manual one. */
+export interface ArpTimer {
+  start(fn: () => void, ms: number): unknown;
+  stop(handle: unknown): void;
+}
+
+const INTERVAL_TIMER: ArpTimer = {
+  start: (fn, ms) => globalThis.setInterval(fn, ms),
+  stop: (handle) => globalThis.clearInterval(handle as ReturnType<typeof setInterval>),
+};
+
+export interface SynthOptions {
+  readonly timer?: ArpTimer;
+  /** Random source of the arpeggiator's random direction (default Math.random). */
+  readonly random?: () => number;
+}
+
+/** What a layer's arpeggiator does: nothing, arpeggiate notes, or gate the sound. */
+type ArpState = 'off' | ArpMode;
 
 export interface Controllers {
   wheel: number;
@@ -43,6 +85,7 @@ class LayerNodes {
   readonly #ctx: BaseAudioContext;
   readonly #layer: SynthLayer;
   readonly #bus: GainNode;
+  readonly #gate: GainNode;
   readonly #pan: StereoPannerNode;
   readonly #bend: ConstantSourceNode;
   readonly #lfoOut: GainNode;
@@ -57,8 +100,10 @@ class LayerNodes {
     this.#ctx = ctx;
     this.#layer = layer;
     this.#bus = ctx.createGain();
+    this.#gate = ctx.createGain();
+    this.#gate.gain.value = 1;
     this.#pan = ctx.createStereoPanner();
-    this.#bus.connect(this.#pan).connect(out);
+    this.#bus.connect(this.#gate).connect(this.#pan).connect(out);
     this.#bend = ctx.createConstantSource();
     this.#bend.offset.value = 0;
     this.#lfoOut = ctx.createGain();
@@ -87,21 +132,26 @@ class LayerNodes {
     this.#pan.pan.setTargetAtTime(layerPan(values, this.#layer), t, SMOOTH);
   }
 
-  updateLfo(values: ValueReader, t: number): void {
+  updateLfo(values: ValueReader, t: number, restart = false): void {
     const spec = lfoSpec(values, this.#layer);
-    if (this.#lfo === null || this.#lfo.shape !== spec.shape) {
+    let fresh = false;
+    if (restart || this.#lfo === null || this.#lfo.shape !== spec.shape) {
       const old = this.#lfo;
       this.#lfo = { shape: spec.shape, node: this.#lfoSource(spec.shape) };
       this.#lfo.node.connect(this.#lfoOut);
       this.#lfo.node.start(t);
+      fresh = true;
       if (old !== null) {
         old.node.stop(t);
         old.node.onended = () => old.node.disconnect();
       }
     }
     const node = this.#lfo.node;
-    if (node instanceof OscillatorNode) node.frequency.setTargetAtTime(spec.rateHz, t, SMOOTH);
-    else node.playbackRate.setTargetAtTime((spec.rateHz * SH_STEP_SAMPLES) / this.#ctx.sampleRate, t, SMOOTH);
+    // A new source starts at its rate; a running one glides to a new rate.
+    const rate = node instanceof OscillatorNode ? node.frequency : node.playbackRate;
+    const value = node instanceof OscillatorNode ? spec.rateHz : (spec.rateHz * SH_STEP_SAMPLES) / this.#ctx.sampleRate;
+    if (fresh) rate.setValueAtTime(value, t);
+    else rate.setTargetAtTime(value, t, SMOOTH);
     this.#lfoPitch.gain.setTargetAtTime(spec.target === 'pitch' ? spec.depth : 0, t, SMOOTH);
     this.#lfoFilter.gain.setTargetAtTime(spec.target === 'filter' ? spec.depth : 0, t, SMOOTH);
     this.#lfoCtrl.gain.setTargetAtTime(spec.target === 'ctrl' ? spec.depth : 0, t, SMOOTH);
@@ -117,11 +167,29 @@ class LayerNodes {
     this.#bend.offset.setTargetAtTime(bendCents(values, this.#layer, bend), t, 0.005);
   }
 
+  /** Gate mode: open at the step, close half a step later; the hardness sets how sharp the edges are (M p.35). */
+  gateStep(time: number, period: number, hardness: number): void {
+    const tau = gateTau(period, hardness);
+    this.#gate.gain.setTargetAtTime(1, time, tau);
+    this.#gate.gain.setTargetAtTime(0, time + period / 2, tau);
+  }
+
+  /** KB sync restart of the gate: steps planned on the old grid after `t` are dropped. */
+  gateCancel(t: number): void {
+    this.#gate.gain.cancelScheduledValues(t);
+  }
+
+  /** Gate mode ends: the layer sounds open again. */
+  gateOpen(t: number): void {
+    this.#gate.gain.cancelScheduledValues(t);
+    this.#gate.gain.setTargetAtTime(1, t, 0.005);
+  }
+
   dispose(): void {
     this.#lfo?.node.stop();
     this.#bend.stop();
     this.#vibOsc.stop();
-    for (const n of [this.#bus, this.#pan, this.#bend, this.#lfoOut, this.#lfoPitch, this.#lfoFilter, this.#lfoCtrl,
+    for (const n of [this.#bus, this.#gate, this.#pan, this.#bend, this.#lfoOut, this.#lfoPitch, this.#lfoFilter, this.#lfoCtrl,
       this.#vibOsc, this.#vibDepth]) n.disconnect();
     this.#lfo?.node.disconnect();
   }
@@ -173,16 +241,36 @@ export class SynthEngine implements SectionEngine<'synth'> {
   readonly #ctl: Controllers = { wheel: 0, pressure: 0, pedal: 0 };
   #bend = 0;
   readonly #handlers: Readonly<Record<Effect, (layer: SynthLayer | null, t: number) => void>>;
+  readonly #clock: MasterClock;
+  readonly #timer: ArpTimer;
+  #timerHandle: unknown = null;
+  readonly #arps: Readonly<Record<SynthLayer, ArpScheduler>>;
+  readonly #arpState: Record<SynthLayer, ArpState> = { A: 'off', B: 'off', C: 'off' };
+  /** Anchor of each layer's free-running step grid (moved by KB sync). */
+  readonly #freeAnchor: Record<SynthLayer, number> = { A: 0, B: 0, C: 0 };
+  /** Keys down per layer (as routed), with velocity and crossfade gain. */
+  readonly #keys: Readonly<Record<SynthLayer, Map<number, ArpHeld>>> = { A: new Map(), B: new Map(), C: new Map() };
+  /** Notes KB hold keeps after key-up, per layer. */
+  readonly #latched: Readonly<Record<SynthLayer, Map<number, ArpHeld>>> = { A: new Map(), B: new Map(), C: new Map() };
+  /** When the last synth key was lifted (for the master clock's soft keyboard sync). */
+  #lastAllUp = -Infinity;
+  readonly #arpLog: Array<{ layer: SynthLayer } & ArpEvent> = [];
+  /** Voices the arpeggiator started that had not begun at the last tick: id → start time, per layer. */
+  readonly #arpVoices: Readonly<Record<SynthLayer, Map<number, number>>> = { A: new Map(), B: new Map(), C: new Map() };
 
   /**
    * With `out` the layer pans feed it (the shared MasterBus input) and the engine builds no master
    * of its own; without it the engine owns a MasterBus to the destination, as before section 13.
    */
   constructor(ctx: BaseAudioContext, values: ValueReader, allocator: VoiceAllocator = new VoiceAllocator(),
-    out?: AudioNode) {
+    out?: AudioNode, options: SynthOptions = {}) {
     this.#ctx = ctx;
     this.#values = values;
     this.#alloc = allocator;
+    this.#timer = options.timer ?? INTERVAL_TIMER;
+    this.#clock = new MasterClock(clockBpm(values), ctx.currentTime);
+    const random = options.random ?? Math.random;
+    this.#arps = { A: new ArpScheduler(random), B: new ArpScheduler(random), C: new ArpScheduler(random) };
     this.#ownMaster = out === undefined ? new MasterBus(ctx) : null;
     const dest = out ?? this.#ownMaster!.input;
     this.#layers = {
@@ -200,7 +288,11 @@ export class SynthEngine implements SectionEngine<'synth'> {
     };
     this.#handlers = {
       // Read at the next note, the next envelope stage, or not at all.
-      layers: none, focus: none, envTimes: none, ampVelocity: none, voicing: none, glide: none, unison: none,
+      layers: (_, t) => {
+        // A layer that can no longer play lets go of the notes KB hold keeps (they have no key-up).
+        for (const l of LAYERS) if (!this.#playable(l)) this.#releaseLatched(l, t);
+      },
+      focus: none, envTimes: none, ampVelocity: none, voicing: none, glide: none, unison: none,
       vibDelay: none,
       layerBus: layerFn((l, t) => l.updateBus(this.#values, t)),
       lfo: layerFn((l, t) => l.updateLfo(this.#values, t)),
@@ -213,8 +305,27 @@ export class SynthEngine implements SectionEngine<'synth'> {
       filterChain: voices('filterChain'),
       filterParams: voices('filterParams'),
       filterEnvDepth: voices('filterEnvDepth'),
+      arp: (layer, t) => {
+        for (const l of layer === null ? LAYERS : [layer]) this.#syncArp(l, t);
+      },
+      arpGroup: () => this.#alignArpGroup(),
+      hold: (_, t) => {
+        for (const l of LAYERS) if (!holdOn(this.#values, l)) this.#releaseLatched(l, t);
+      },
+      // The filter group is the store's job (model/actions.ts): the layers' values are equal.
+      group: none,
+      lfoGroup: (_, t) => {
+        if (this.#values.get('synth.multiLayerLFO') === 0) return;
+        for (const l of LAYERS) this.#layers[l].updateLfo(this.#values, t, true);
+      },
     };
     this.#refreshLayers();
+    for (const l of LAYERS) this.#syncArp(l, ctx.currentTime);
+  }
+
+  /** The master clock (tempo and anchor), for inspection. */
+  get clock(): MasterClock {
+    return this.#clock;
   }
 
   get context(): BaseAudioContext {
@@ -250,14 +361,11 @@ export class SynthEngine implements SectionEngine<'synth'> {
         const hits: readonly LayerHit<SynthLayer>[] = 'layers' in e
           ? e.layers
           : enabledLayers(this.#values).map((layer) => ({ layer, gain: 1 }));
-        const playable = hits.filter((h) => silentReason(this.#values, h.layer) === null);
-        if (playable.length === 0) return;
-        const gains = new Map(playable.map((h) => [h.layer, h.gain] as const));
-        this.#run(this.#alloc.noteOn(e.note, e.velocity, playable.map((h) => voicing(this.#values, h.layer))), t, gains);
+        this.#noteOn(e.note, e.velocity, hits, t);
         return;
       }
       case 'noteOff':
-        this.#run(this.#alloc.noteOff(e.note), t);
+        this.#noteOff(e.note, t);
         return;
       case 'sustain':
         this.#run(this.#alloc.sustain(e.on), t);
@@ -284,6 +392,16 @@ export class SynthEngine implements SectionEngine<'synth'> {
     }
     const t = this.#ctx.currentTime;
     const done = new Set<string>();
+    if (batch.some((c) => c.key === 'common.masterClockRate')) {
+      // A tempo change: synced arpeggiators read the clock at their next step, synced LFOs follow now.
+      this.#clock.setBpm(clockBpm(this.#values), t);
+      for (const l of LAYERS) this.#layers[l].updateLfo(this.#values, t);
+    }
+    if (batch.some((c) => c.key === SCENE_KEY)) {
+      // A scene switch changes which layers play, like a layer or section switch.
+      done.add('layers:-');
+      this.#handlers.layers(null, t);
+    }
     for (const c of batch) {
       const binding = bindingOf(c.key);
       if (binding === null) continue;
@@ -298,22 +416,271 @@ export class SynthEngine implements SectionEngine<'synth'> {
   /** After a program load: stop every voice and set the layers from the new values. */
   reload(): void {
     this.panic();
+    this.#clock.setBpm(clockBpm(this.#values), this.#ctx.currentTime);
     this.#refreshLayers();
+    for (const l of LAYERS) this.#syncArp(l, this.#ctx.currentTime);
   }
 
-  /** All notes off at once: every voice is freed (count 0) and fades out over 10 ms. */
+  /**
+   * All notes off at once: every voice is freed (count 0) and fades out over 10 ms; keys, notes kept
+   * by KB hold and the arpeggiators' notes are forgotten.
+   */
   panic(): void {
     const t = this.#ctx.currentTime;
     this.#run(this.#alloc.allNotesOff(), t);
     for (const v of this.#voices.values()) v.kill(t);
     this.#voices.clear();
+    for (const l of LAYERS) {
+      this.#keys[l].clear();
+      this.#latched[l].clear();
+      this.#arps[l].reset();
+      this.#arpVoices[l].clear();
+    }
   }
 
-  /** Stops every voice and frees the layer nodes; a shared output (`out`) is left alone. */
+  /** Stops every voice and the arpeggiator timer, frees the layer nodes; a shared output (`out`) is left alone. */
   dispose(): void {
     this.panic();
+    for (const l of LAYERS) this.#arpState[l] = 'off';
+    this.#updateTimer();
     for (const l of LAYERS) this.#layers[l].dispose();
     this.#ownMaster?.dispose();
+  }
+
+  /**
+   * Plan the arpeggiators' next ARP_HORIZON seconds: note events and gate steps at their audio
+   * times. The timer calls it every ARP_TICK_MS while an arpeggiator runs; a key that reaches an
+   * arpeggiator calls it at once, so a KB sync restart plays on the key.
+   */
+  tick(): void {
+    const now = this.#ctx.currentTime;
+    for (const l of LAYERS) {
+      for (const [id, start] of this.#arpVoices[l]) if (start <= now) this.#arpVoices[l].delete(id);
+      if (this.#arpState[l] === 'off') continue;
+      const spec = arpSpec(this.#values, l);
+      const events = this.#arps[l].schedule(now, now + ARP_HORIZON, spec, this.#arpGrid(l, spec));
+      // A layer switched off (or silent) starts no arpeggio notes; their offs still pass.
+      this.#playArp(l, this.#playable(l) ? events : events.filter((e) => e.type !== 'on'), spec);
+    }
+  }
+
+  /** The most recent arpeggiator events (notes and gate steps), oldest first, for inspection. */
+  arpLog(): ReadonlyArray<{ layer: SynthLayer } & ArpEvent> {
+    return [...this.#arpLog];
+  }
+
+  /** Per layer: keys down, notes kept by KB hold, and the arpeggiator's state, for inspection. */
+  held(): Record<SynthLayer, { keys: number[]; hold: number[]; arp: ArpState }> {
+    const out = {} as Record<SynthLayer, { keys: number[]; hold: number[]; arp: ArpState }>;
+    for (const l of LAYERS) {
+      out[l] = { keys: [...this.#keys[l].keys()].sort((a, b) => a - b),
+        hold: [...this.#latched[l].keys()].sort((a, b) => a - b), arp: this.#arpState[l] };
+    }
+    return out;
+  }
+
+  #noteOn(note: number, velocity: number, hits: readonly LayerHit<SynthLayer>[], t: number): void {
+    const playable = hits.filter((h) => silentReason(this.#values, h.layer) === null);
+    if (playable.length === 0) return;
+    // A restart (KB sync, a master clock reset) must plan its first step on the key, the gate's too.
+    let plan = LAYERS.every((l) => this.#keys[l].size === 0) && this.#keyboardSync(playable, t);
+    const direct: LayerHit<SynthLayer>[] = [];
+    for (const h of playable) {
+      const l = h.layer;
+      const first = this.#keys[l].size === 0;
+      // KB hold: the first key after all keys were lifted starts a new chord.
+      if (first) this.#releaseLatched(l, t);
+      this.#latched[l].delete(note);
+      const entry: ArpHeld = { velocity, gain: h.gain };
+      this.#keys[l].set(note, entry);
+      const state = this.#arpState[l];
+      if (state !== 'off' && first) {
+        const spec = arpSpec(this.#values, l);
+        if (spec.kbSync && !spec.clockSync) {
+          this.#restartFree(l, t);
+          plan = true;
+        }
+      }
+      if (state === 'arp' || state === 'poly') {
+        this.#playArp(l, this.#arps[l].noteOn(note, entry, t), arpSpec(this.#values, l));
+        plan = true;
+      } else direct.push(h);
+    }
+    if (direct.length > 0) {
+      const gains = new Map(direct.map((h) => [h.layer, h.gain] as const));
+      this.#run(this.#alloc.noteOn(note, velocity, direct.map((h) => voicing(this.#values, h.layer))), t, gains);
+    }
+    if (plan) this.tick();
+  }
+
+  #noteOff(note: number, t: number): void {
+    const direct: SynthLayer[] = [];
+    let known = false;
+    for (const l of LAYERS) {
+      const held = this.#keys[l].get(note);
+      if (held === undefined) continue;
+      known = true;
+      this.#keys[l].delete(note);
+      if (holdOn(this.#values, l)) this.#latched[l].set(note, held);
+      else if (this.#arpeggiates(l)) this.#arps[l].noteOff(note);
+      else direct.push(l);
+    }
+    if (known && LAYERS.every((l) => this.#keys[l].size === 0)) this.#lastAllUp = t;
+    for (const l of direct) this.#run(this.#alloc.noteOff(note, l), t);
+  }
+
+  /** Whether a layer's held notes feed its arpeggiator (Arp or Poly mode) instead of voices. */
+  #arpeggiates(l: SynthLayer): boolean {
+    return this.#arpState[l] === 'arp' || this.#arpState[l] === 'poly';
+  }
+
+  /** Whether a layer can start notes now: on in the active scene and not silent. */
+  #playable(l: SynthLayer): boolean {
+    return enabledLayers(this.#values).includes(l) && silentReason(this.#values, l) === null;
+  }
+
+  /**
+   * Cancel the notes and gate steps a layer's arpeggiator planned for after `t` (a restart or a
+   * stop): those voices end before they begin, and the allocator forgets them.
+   */
+  #cancelArpAfter(l: SynthLayer, t: number): void {
+    for (const [id, start] of this.#arpVoices[l]) {
+      if (start <= t) continue;
+      this.#arpVoices[l].delete(id);
+      // Killed before it begins: the attack is cancelled and the voice stays at 0 until it stops.
+      this.#voices.get(id)?.kill(t);
+      this.#voices.delete(id);
+      this.#alloc.voiceEnded(id);
+    }
+    if (this.#arpState[l] === 'gate') this.#layers[l].gateCancel(t);
+  }
+
+  /** KB hold lets go of a layer's kept notes (a new chord, KB Hold off, the layer excluded). */
+  #releaseLatched(l: SynthLayer, t: number): void {
+    const latched = this.#latched[l];
+    if (latched.size === 0) return;
+    for (const note of latched.keys()) {
+      if (this.#keys[l].has(note)) continue;
+      if (this.#arpeggiates(l)) this.#arps[l].noteOff(note);
+      else this.#run(this.#alloc.noteOff(note, l), t);
+    }
+    latched.clear();
+  }
+
+  /** The notes a layer holds now: keys down and notes kept by KB hold. */
+  #heldEntries(l: SynthLayer): Array<[number, ArpHeld]> {
+    return [...new Map([...this.#latched[l], ...this.#keys[l]])];
+  }
+
+  /** Follow a layer's Arp Run and mode: hand the held notes between the voices and the arpeggiator. */
+  #syncArp(l: SynthLayer, t: number): void {
+    const spec = arpSpec(this.#values, l);
+    const next: ArpState = spec.run ? spec.mode : 'off';
+    const prev = this.#arpState[l];
+    if (next === prev) return;
+    const wasNotes = prev === 'arp' || prev === 'poly';
+    const isNotes = next === 'arp' || next === 'poly';
+    this.#arpState[l] = next;
+    if (prev === 'gate') this.#layers[l].gateOpen(t);
+    if (wasNotes && !isNotes) {
+      // The arpeggio stops: its notes end (those planned for later never start), and the notes
+      // still held sound directly again.
+      this.#cancelArpAfter(l, t);
+      this.#playArp(l, this.#arps[l].flush(t), spec);
+      this.#arps[l].reset();
+      for (const [note, h] of this.#heldEntries(l)) {
+        this.#run(this.#alloc.noteOn(note, h.velocity, [voicing(this.#values, l)]), t, new Map([[l, h.gain]]));
+      }
+    } else if (!wasNotes && isNotes) {
+      // The arpeggio starts: the layer's direct voices end and its held notes feed the scheduler.
+      this.#arps[l].reset();
+      for (const [note, h] of this.#heldEntries(l)) {
+        this.#run(this.#alloc.noteOff(note, l), t);
+        this.#playArp(l, this.#arps[l].noteOn(note, h, t), spec);
+      }
+    } else if (next === 'gate') this.#arps[l].reset();
+    this.#updateTimer();
+    if (next !== 'off') this.tick();
+  }
+
+  #arpGrid(l: SynthLayer, spec: ArpSpec): StepGrid {
+    return spec.clockSync ? this.#clock.grid(spec.division.beats) : { period: spec.freeStep, anchor: this.#freeAnchor[l] };
+  }
+
+  /** KB sync of a free-running arpeggiator: its grid starts at `t`; with the arp group on, every layer's does. */
+  #restartFree(l: SynthLayer, t: number): void {
+    const grouped = this.#values.get('synth.multiLayerArp') !== 0;
+    for (const m of grouped ? LAYERS : [l]) {
+      this.#freeAnchor[m] = t;
+      if (this.#arpState[m] !== 'off' && !arpSpec(this.#values, m).clockSync) this.#restartArp(m, t);
+    }
+  }
+
+  /** A layer's arpeggio or gate starts again at `t`: what it planned on the old grid after `t` is dropped. */
+  #restartArp(l: SynthLayer, t: number): void {
+    this.#cancelArpAfter(l, t);
+    this.#arps[l].restart(t);
+  }
+
+  /** The arp group: every layer's free grid follows the focused layer's, so grouped arpeggios step together. */
+  #alignArpGroup(): void {
+    if (this.#values.get('synth.multiLayerArp') === 0) return;
+    const anchor = this.#freeAnchor[focusedLayer(this.#values, 'synth')];
+    for (const l of LAYERS) this.#freeAnchor[l] = anchor;
+  }
+
+  /**
+   * The first synth key after all synth keys were lifted: the master clock's keyboard sync may reset
+   * it (clock.ts shouldResetClock); then synced arpeggiators restart on the key and synced LFOs
+   * restart their phase (M p.37: the reset affects everything synced to the clock).
+   */
+  #keyboardSync(hits: readonly LayerHit<SynthLayer>[], t: number): boolean {
+    const v = this.#values;
+    const kbSync = (l: SynthLayer): boolean => v.get(layerKey(l, 'synth{L}.arpKbdSync')) !== 0;
+    const reset = shouldResetClock({
+      mode: CLOCK_KBD_SYNC[v.get('common.masterClockKbdSync')] ?? 'off',
+      idle: t - this.#lastAllUp,
+      beat: this.#clock.beat,
+      reachesSyncLayer: hits.some((h) => kbSync(h.layer)),
+      anySyncLayer: enabledLayers(v).some(kbSync),
+    });
+    if (!reset) return false;
+    this.#clock.reset(t);
+    let restarted = false;
+    for (const l of LAYERS) {
+      if (this.#arpState[l] !== 'off' && arpSpec(v, l).clockSync) {
+        this.#restartArp(l, t);
+        restarted = true;
+      }
+      if (lfoSynced(v, l)) this.#layers[l].updateLfo(v, t, true);
+    }
+    return restarted;
+  }
+
+  /** Carry out arpeggiator events on a layer at their times. */
+  #playArp(l: SynthLayer, events: readonly ArpEvent[], spec: ArpSpec): void {
+    for (const e of events) {
+      this.#arpLog.push({ layer: l, ...e });
+      if (e.type === 'on') {
+        const cmds = this.#alloc.noteOn(e.note, e.velocity, [voicing(this.#values, l)]);
+        this.#run(cmds, e.time, new Map([[l, e.gain]]));
+        if (e.time > this.#ctx.currentTime) {
+          for (const c of cmds) if (c.type === 'start') this.#arpVoices[l].set(c.id, e.time);
+        }
+      } else if (e.type === 'off') this.#run(this.#alloc.noteOff(e.note, l), e.time);
+      else this.#layers[l].gateStep(e.time, e.period, spec.hardness);
+    }
+    if (this.#arpLog.length > ARP_LOG) this.#arpLog.splice(0, this.#arpLog.length - ARP_LOG);
+  }
+
+  /** The timer runs while any layer's arpeggiator does. */
+  #updateTimer(): void {
+    const need = LAYERS.some((l) => this.#arpState[l] !== 'off');
+    if (need && this.#timerHandle === null) this.#timerHandle = this.#timer.start(() => this.tick(), ARP_TICK_MS);
+    else if (!need && this.#timerHandle !== null) {
+      this.#timer.stop(this.#timerHandle);
+      this.#timerHandle = null;
+    }
   }
 
   #refreshLayers(): void {

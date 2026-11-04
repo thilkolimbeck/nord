@@ -4,7 +4,7 @@
  * Section and layer switches act on the active layer scene (model/scene.ts, plan section 13.4).
  */
 import { clampValue, descriptorOf, optionsFor } from './descriptors.ts';
-import { type Ns4Key, layerKey, type SynthLayer } from './keys.ts';
+import { LAYERS, type Ns4Key, layerKey, layerOf, patternOf, type SynthLayer } from './keys.ts';
 import type { ValueReader } from './labels.ts';
 import { modelsOfType, pianoModel, PIANO_TYPES, pianoType } from './pianos.ts';
 import {
@@ -132,4 +132,85 @@ export function setPianoType(store: ParamStore, layer: PianoLayer, bank: number)
     if (first !== undefined) entries.push([k.hash, first.hash, 'derived'], [k.entry, 0, 'derived']);
   }
   store.setMany(entries, 'ui');
+}
+
+/** A synth Group (M p.32, 34, 35): the switch and the layer fields it shares. */
+export type SynthGroup = 'filter' | 'lfo' | 'arp';
+
+const MORPHS = (p: string): string[] => ['morphWheel', 'morphAfterTouch', 'morphCtrlPedal'].map((m) => `${p}.${m}`);
+const S = 'synth{L}Sound.';
+const Y = 'synth{L}.';
+
+/**
+ * The layer fields each Group shares, as layer patterns, morph amounts included ("applies the
+ * current Filter settings to all Synth Layers", M p.32; LFO p.34; "allows all Layers to share the
+ * same settings", arpeggiator p.35). The arpeggiator's pattern fields go with it, decoded or not.
+ */
+export const SYNTH_GROUPS: Readonly<Record<SynthGroup, { readonly key: Ns4Key; readonly patterns: readonly string[] }>> = {
+  filter: {
+    key: 'synth.multiLayerFlt',
+    patterns: ['fltEnable', 'fltType', 'fltFreq', 'fltRes', 'fltKbdTrk', 'fltDrive', 'fltEnvAmt', 'fltEnvAtk', 'fltEnvDcy',
+      'fltEnvRls', 'fltEnvVel'].map((p) => `${S}${p}`)
+      .concat(MORPHS(`${S}fltFreq`), MORPHS(`${S}fltRes`), MORPHS(`${S}fltEnvAmt`)),
+  },
+  lfo: {
+    key: 'synth.multiLayerLFO',
+    patterns: ['lfoWave', 'lfoDst', 'lfoRateClkDiv', 'lfoAmt', 'lfoClkEnable'].map((p) => `${S}${p}`)
+      .concat(MORPHS(`${S}lfoRateClkDiv`), MORPHS(`${S}lfoAmt`)),
+  },
+  arp: {
+    key: 'synth.multiLayerArp',
+    patterns: ['arpRun', 'arpMode', 'arpDir', 'arpZigZag', 'arpKbdSync', 'arpRange', 'arpRateClkDiv', 'arpClkEnable',
+      'arpPtnEnable', 'arpPtnLen', 'arpPtnAcc', 'arpPtnDur', 'arpPtnPan'].map((p) => `${Y}${p}`)
+      .concat(MORPHS(`${Y}arpRange`), MORPHS(`${Y}arpRateClkDiv`)),
+  },
+};
+
+const GROUP_OF_PATTERN: ReadonlyMap<string, SynthGroup> = new Map(
+  (Object.keys(SYNTH_GROUPS) as SynthGroup[]).flatMap((g) => SYNTH_GROUPS[g].patterns.map((p) => [p, g] as const)));
+
+/** The Group whose switch a key is, or null. */
+export function groupOfSwitch(key: Ns4Key): SynthGroup | null {
+  return (Object.keys(SYNTH_GROUPS) as SynthGroup[]).find((g) => SYNTH_GROUPS[g].key === key) ?? null;
+}
+
+/** The Group a synth layer field belongs to while that Group is on, else null. */
+export function activeGroupOf(values: ValueReader, key: Ns4Key): SynthGroup | null {
+  const group = GROUP_OF_PATTERN.get(patternOf(key));
+  return group !== undefined && values.get(SYNTH_GROUPS[group].key) !== 0 ? group : null;
+}
+
+/**
+ * Switch a synth Group on or off. On copies the focused layer's (active scene) shared fields to
+ * the other two layers (derived), as the manual's "applies the current settings to all Synth
+ * Layers"; off leaves every layer as it is ("the same settings until these are adjusted manually",
+ * p.14–15, said of the effects Group).
+ */
+export function setSynthGroup(store: ParamStore, group: SynthGroup, on: boolean): void {
+  const g = SYNTH_GROUPS[group];
+  const entries: Entry[] = [[g.key, on ? 1 : 0]];
+  if (on) {
+    const source = focusedLayer(store, 'synth');
+    for (const p of g.patterns) {
+      const value = store.get(layerKey(source, p));
+      for (const l of LAYERS) if (l !== source) entries.push([layerKey(l, p), value, 'derived']);
+    }
+  }
+  store.setMany(entries, 'ui');
+}
+
+/**
+ * Write a synth layer field; while its Group is on, every layer gets the value (the other two
+ * derived): "keeps further edits in sync between them" (M p.32). Other fields are a plain write.
+ */
+export function setSynthParam(store: ParamStore, key: Ns4Key, value: number): void {
+  const group = activeGroupOf(store, key);
+  const layer = layerOf(key);
+  if (group === null || layer === null) {
+    store.set(key, value, 'ui');
+    return;
+  }
+  const v = clampValue(descriptorOf(key), value);
+  const p = patternOf(key);
+  store.setMany([[key, v], ...LAYERS.filter((l) => l !== layer).map((l): Entry => [layerKey(l, p), v, 'derived'])], 'ui');
 }

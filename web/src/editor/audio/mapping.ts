@@ -8,7 +8,11 @@
 import { descriptorOf, toSi } from '../model/descriptors.ts';
 import { layerKey, type Ns4Key, type SynthLayer } from '../model/keys.ts';
 import type { ValueReader } from '../model/labels.ts';
+import {
+  ARP_DIVISIONS, arpFreeStepSeconds, type ClockDivision, divisionOf, divisionSeconds, LFO_DIVISIONS,
+} from '../model/clock.ts';
 import { enabledLayers as sceneEnabledLayers } from '../model/scene.ts';
+import { ARP_DIRECTIONS, ARP_MODES, type ArpSettings } from './arp.ts';
 import type { LayerVoicing } from './voice-alloc.ts';
 
 // ---------------------------------------------------------------------------------------------
@@ -304,14 +308,98 @@ export function lfoDepth(step: number, target: LfoTarget): number {
   return 0;
 }
 
+/** The master clock tempo in BPM (common.masterClockRate stores the BPM itself, 30–240; M p.39–40). */
+export function clockBpm(values: ValueReader): number {
+  return values.get('common.masterClockRate');
+}
+
+/**
+ * The LFO rate: free (lfoRateHz), or with Mst Clk on one cycle per master clock division (M p.34);
+ * the division list and its mapping from the stored step are assumed (model/clock.ts).
+ */
 export function lfoSpec(values: ValueReader, layer: SynthLayer): LfoSpec {
   const target = LFO_TARGETS[values.get(key(layer, 'synth{L}Sound.lfoDst'))] ?? 'none';
+  const step = values.get(key(layer, 'synth{L}Sound.lfoRateClkDiv'));
+  const synced = values.get(key(layer, 'synth{L}Sound.lfoClkEnable')) !== 0;
   return {
     shape: LFO_SHAPES[values.get(key(layer, 'synth{L}Sound.lfoWave'))] ?? 'triangle',
     target,
-    rateHz: lfoRateHz(values.get(key(layer, 'synth{L}Sound.lfoRateClkDiv'))),
+    rateHz: synced ? 1 / divisionSeconds(clockBpm(values), divisionOf(step, LFO_DIVISIONS)) : lfoRateHz(step),
     depth: lfoDepth(values.get(key(layer, 'synth{L}Sound.lfoAmt')), target),
   };
+}
+
+/** Whether a layer's LFO follows the master clock (its phase restarts when the clock is reset, M p.37). */
+export function lfoSynced(values: ValueReader, layer: SynthLayer): boolean {
+  return values.get(key(layer, 'synth{L}Sound.lfoClkEnable')) !== 0;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Arpeggiator and gate (M p.17, 35–37; audio/arp.ts)
+
+/** Length of an arpeggiated note as a fraction of its step: assumed (the pattern durations are not decoded). */
+export const ARP_NOTE_LENGTH = 0.5;
+
+export interface ArpSpec extends ArpSettings {
+  /** Arp Run. */
+  readonly run: boolean;
+  /** KB Sync of the layer (M p.37). */
+  readonly kbSync: boolean;
+  /** Mst Clk: the rate is a master clock division (M p.36). */
+  readonly clockSync: boolean;
+  /** Seconds of a free-running step: an eighth note at the rate's BPM (M p.36; the BPM curve is assumed). */
+  readonly freeStep: number;
+  /** The master clock division of the rate step (assumed list, model/clock.ts). */
+  readonly division: ClockDivision;
+  /** Gate mode: the Range/Env knob as envelope hardness, 0 soft … 1 hard (M p.35). */
+  readonly hardness: number;
+}
+
+/**
+ * Arpeggio range, unverified: the Range knob (0.0–10.0 on the display, 0–127 stored) spread over
+ * 0–4 octaves in steps of a third of an octave (M p.17: "up to 4 octaves in steps of 1/3 of an
+ * octave"), as semitones above the highest held note.
+ */
+export function arpRangeSemitones(step: number): number {
+  return 4 * Math.round((clamp(step, 0, 127) * 12) / 127);
+}
+
+/** The pattern's step count with Pattern on (arpPtnLen 1–15 shows as 2–16 steps, table 432-7), else null. */
+export function arpPatternSteps(values: ValueReader, layer: SynthLayer): number | null {
+  if (values.get(key(layer, 'synth{L}.arpPtnEnable')) === 0) return null;
+  return values.get(key(layer, 'synth{L}.arpPtnLen')) + 1;
+}
+
+export function arpSpec(values: ValueReader, layer: SynthLayer): ArpSpec {
+  const range = values.get(key(layer, 'synth{L}.arpRange'));
+  const rate = values.get(key(layer, 'synth{L}.arpRateClkDiv'));
+  return {
+    run: values.get(key(layer, 'synth{L}.arpRun')) !== 0,
+    mode: ARP_MODES[values.get(key(layer, 'synth{L}.arpMode'))] ?? 'arp',
+    direction: ARP_DIRECTIONS[values.get(key(layer, 'synth{L}.arpDir'))] ?? 'up',
+    zigzag: values.get(key(layer, 'synth{L}.arpZigZag')) !== 0,
+    rangeSemitones: arpRangeSemitones(range),
+    patternSteps: arpPatternSteps(values, layer),
+    noteLength: ARP_NOTE_LENGTH,
+    kbSync: values.get(key(layer, 'synth{L}.arpKbdSync')) !== 0,
+    clockSync: values.get(key(layer, 'synth{L}.arpClkEnable')) !== 0,
+    freeStep: arpFreeStepSeconds(rate),
+    division: divisionOf(rate, ARP_DIVISIONS),
+    hardness: clamp(range, 0, 127) / 127,
+  };
+}
+
+/** Gate envelope time constant, unverified: soft (0) a fifth of the step, hard (1) about 1 ms. */
+export function gateTau(period: number, hardness: number): number {
+  return 0.001 + period * 0.2 * (1 - clamp(hardness, 0, 1));
+}
+
+// ---------------------------------------------------------------------------------------------
+// KB hold (M p.36)
+
+/** Whether KB Hold keeps a layer's notes after key-up: KB Hold on and the layer included. */
+export function holdOn(values: ValueReader, layer: SynthLayer): boolean {
+  return values.get('synth.kbdHoldEnableCommon') !== 0 && values.get(key(layer, 'synth{L}.kbdHoldEnableLayer')) !== 0;
 }
 
 export type VibMode = 'none' | 'on' | 'delay' | 'wheel' | 'pressure' | 'pedal';

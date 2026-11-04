@@ -39,17 +39,18 @@ test('one descriptor per layout field, in layout order, inside the layout range'
   }
 });
 
-test('the MVP control set matches plan section 3.2', () => {
+test('the synth control set matches plan sections 3.2 and 14', () => {
   for (const layer of LAYERS) {
     const controls = synthControls(layer);
     const count = (status: string): number => controls.filter((d) => d.status === status).length;
-    // kb zone is live since the router plays zones (plan section 13.1).
-    assert.deepEqual([count('live'), count('unverified'), count('stored'), controls.length], [31, 14, 14, 59], layer);
+    // kb zone is live since the router plays zones (plan section 13.1); the arpeggiator, mst clk and kb hold
+    // since plan section 14; only the two samples options stay stored.
+    assert.deepEqual([count('live'), count('unverified'), count('stored'), controls.length], [37, 20, 2, 59], layer);
   }
-  // Section: on, layer mask, focus, level and pan of A, B and C (9 controls), 4 stored switches.
+  // Section: on, layer mask, focus, level and pan of A, B and C, the three groups and kb hold (13 controls).
   const section = synthControls(null);
-  assert.equal(section.filter((d) => d.status === 'stored').length, 4);
-  assert.equal(section.filter((d) => d.status !== 'stored').length, 9);
+  assert.equal(section.filter((d) => d.status === 'stored').length, 0);
+  assert.equal(section.length, 13);
   const kinds = Object.fromEntries(['synthASound.fltFreq', 'synthASound.fltType', 'synthASound.fltEnable',
     'synth.layerEnableSyn_I', 'synthASound.oscCat', 'synthA.smpNameHash', 'synthA.voiceMode', 'synthASound.fltRes']
     .map((k) => [k, descriptorOf(k as Ns4Key).kind]));
@@ -94,13 +95,12 @@ test('statuses of the organ, piano and program fields (plan sections 13.2–13.4
       'organAVibPerc.org_Preset_kB3PercHarmonic', 'organ.polyPercEnable', 'organ.effectsLeslieEnable',
       'organ.effectsLeslieStopMode', 'common.sectionEnablePno_I', 'piano.layerEnablePno_I', 'piano.layerFocusPno_I',
       'piano.layerLevelPnoA', 'pianoA.kbZone', 'pianoB.octaveShift', 'pianoA.pStickEnable', 'pianoB.sustainEnable',
-      'pianoA.bank', 'pianoB.nameHash', 'synthC.kbZone'],
+      'pianoA.bank', 'pianoB.nameHash', 'synthC.kbZone', 'common.masterClockRate'],
     unverified: ['common.splitWidthLow', 'organAVibPerc.org_Preset_kB3PercSpeed', 'organBVibPerc.org_Preset_kB3PercLevel',
       'organ.vibratoTypeB3', 'organ.vibratoTypeVox', 'organ.vibratoTypeFarfisa', 'organ.effectsLeslieSpeed',
       'organ.effectsLeslieDrv', 'organ.leslieMicDistance', 'pianoA.variation', 'pianoB.acoustic', 'pianoA.pedalNoise',
-      'pianoB.kbdTouch', 'pianoA.dynComp', 'pianoB.unison', 'pianoA.eq'],
-    stored: ['common.pdlLayerSceneEnable', 'common.masterClockRate', 'common.masterClockKbdSync', 'common.pdlTapEnable',
-      'organA.presetEnable', 'organ.leslieStopPreset', 'organ.leslieRotorAngle', 'organ.leslieHornAngle', 'pianoB.entry'],
+      'pianoB.kbdTouch', 'pianoA.dynComp', 'pianoB.unison', 'pianoA.eq', 'common.masterClockKbdSync'],
+    stored: ['common.pdlLayerSceneEnable', 'common.pdlTapEnable', 'organA.presetEnable', 'organ.leslieStopPreset', 'organ.leslieRotorAngle', 'organ.leslieHornAngle', 'pianoB.entry'],
     layout: ['common.orgPresetPos', 'common.synPresetLayerCntC', 'common.auxKbdEnable', 'organ.auxKbdControl',
       'piano.auxKbdControl', 'common.audioRoutingBusLeslie', 'piano.effectsSectionModePno', 'organFx.ampDrive'],
   };
@@ -259,7 +259,9 @@ test('verified: live and labelled', () => {
   assert.ok(verified(descriptorOf('synthASound.fltFreq')));
   assert.ok(verified(descriptorOf('synthA.voiceMode')));
   assert.ok(!verified(descriptorOf('synthASound.fltRes')));
-  assert.ok(!verified(descriptorOf('synthA.arpRun')));
+  assert.ok(verified(descriptorOf('synthA.arpRun')));
+  assert.ok(!verified(descriptorOf('synthA.arpRange')));
+  assert.ok(!verified(descriptorOf('synthASound.smpDynamic')));
   assert.ok(verified(descriptorOf('organA.model')));
   assert.ok(!verified(descriptorOf('organ.auxKbdControl')));
   assert.ok(!verified(descriptorOf('pianoA.eq')));

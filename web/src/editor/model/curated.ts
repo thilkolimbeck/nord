@@ -6,6 +6,9 @@
  * piano type), and per-option status. Everything else is derived from the layout and the display
  * tables in descriptors.ts. "M p.N" is the Stage 4 manual (v1.6X).
  */
+import {
+  ARP_DIVISIONS, ARP_FREE_OPTIONS, BPM_MAX, BPM_MIN, divisionOptions, LFO_DIVISIONS, RAW_RATE_OPTIONS,
+} from './clock.ts';
 import type { EnumOption, ParamKind } from './descriptors.ts';
 import type { ParamStatus } from './sections.ts';
 
@@ -21,9 +24,16 @@ export interface Curated {
   readonly optionStatus?: Readonly<Record<number, { readonly status: ParamStatus; readonly note: string }>>;
   /** Manual labels that depend on another field's value (piano timbre by piano type); `fallback` for other values. */
   readonly optionsBy?: OptionSets;
+  /** For a stored field (no sound): the short line under its control; default STORED_LINE. */
+  readonly stored?: string;
 }
 
-/** Option lists chosen by the value of another field. */
+/** The line under a stored control when its entry names none. */
+export const STORED_LINE = 'stored setting, no sound';
+const PEDAL_LINE = 'pedal assignment, stored';
+const SAMPLES_LINE = 'samples mode only · not implemented (no nord samples)';
+
+/** Option lists chosen by the value of another field ('{L}' in `dep` is the field's own synth layer). */
 export interface OptionSets {
   readonly dep: string;
   readonly sets: Readonly<Record<number, readonly EnumOption[]>>;
@@ -31,7 +41,9 @@ export interface OptionSets {
 }
 
 const NO_TABLE = 'no Stage 4 display table: the number is the stored step';
-const NO_SOUND = 'not in the MVP sound; stored and exported';
+const PATTERN = 'the pattern content (accent, step duration, pan) is not decoded: every step plays, a flat pattern';
+const SYNCED = 'with Mst Clk a division of the master clock; the division list and how the stored step maps onto it '
+  + 'are assumed';
 const OFF_1_2_3: readonly EnumOption[] = [
   { value: 0, label: 'off' }, { value: 1, label: '1' }, { value: 2, label: '2' }, { value: 3, label: '3' }];
 const LAYER_NAMES: readonly EnumOption[] = [{ value: 0, label: 'A' }, { value: 1, label: 'B' }, { value: 2, label: 'C' }];
@@ -110,13 +122,14 @@ const TIMBRE_ELECTRIC = labels(['off', 'Soft', 'Mid', 'Bright', 'Dyno 1', 'Dyno 
 const TIMBRE_CLAV = labels(['off', 'Soft', 'Treble', 'Soft+Treble', 'Brilliant', 'Soft+Brilliant', 'Treble+Brilliant',
   'Soft+Treble+Brilliant']);
 /** Master clock: the stored number is the tempo in BPM (M p.39–40). */
-const BPM: readonly EnumOption[] = Array.from({ length: 211 }, (_, i) => ({ value: 30 + i, label: `${30 + i} bpm` }));
+const BPM: readonly EnumOption[] = Array.from({ length: BPM_MAX - BPM_MIN + 1 },
+  (_, i) => ({ value: BPM_MIN + i, label: `${BPM_MIN + i} bpm` }));
 
 export const CURATED: Readonly<Record<string, Curated>> = {
   // Program (M p.15, 38–45; plan section 13.4)
   'common.layerScene': { label: 'scene', status: 'live', note: 'M p.15, 43: which layer scene plays and is edited' },
   'common.pdlLayerSceneEnable': { label: 'scene pedal', status: 'stored', options: OFF_ON, kind: 'bool',
-    note: 'M p.60: a pedal switches the layer scene; no pedal input in the editor' },
+    stored: PEDAL_LINE, note: 'M p.60: a pedal switches the layer scene; the editor has no pedal input' },
   'common.splitEnabled': { label: 'split', status: 'live', note: 'M p.39: off = every layer plays every key' },
   'common.splitEnabledLow': { label: 'low', status: 'live', note: 'M p.39: split point between zones 1 and 2' },
   'common.splitEnabledMid': { label: 'mid', status: 'live', note: 'M p.39: split point between zones 2 and 3' },
@@ -129,12 +142,16 @@ export const CURATED: Readonly<Record<string, Curated>> = {
   'common.splitWidthHigh': { label: 'high xfade', status: 'unverified', note: 'M p.39: crossfade width; the curve is a guess' },
   'common.transposeEnable': { label: 'transpose on', status: 'live', note: 'M p.40: affects all layers of the program' },
   'common.transposeValue': { label: 'transpose', status: 'live', note: 'M p.40: affects all layers of the program' },
-  'common.masterClockRate': { label: 'master clock', status: 'stored', kind: 'continuous', options: BPM,
-    note: 'M p.39–40: tempo in BPM; no arpeggiator, LFO sync or delay in the editor' },
-  'common.masterClockKbdSync': { label: 'kb sync', status: 'stored', kind: 'enum',
-    options: labels(['off', 'on', 'soft']), note: 'M p.40 labels off, on, soft; no display table' },
-  'common.pdlTapEnable': { label: 'tap pedal', status: 'stored', options: OFF_ON, kind: 'bool',
-    note: 'M p.40: tap tempo from a pedal; no pedal input in the editor' },
+  'common.masterClockRate': { label: 'master clock', status: 'live', kind: 'continuous', options: BPM,
+    note: 'M p.39–40: tempo in BPM; the arpeggiators and synth LFOs with Mst Clk follow it (the layer effects do not '
+      + 'play in the editor)' },
+  'common.masterClockKbdSync': { label: 'kb sync', status: 'unverified', kind: 'enum',
+    options: labels(['off', 'on', 'soft']),
+    note: 'M p.40 labels off, on, soft (no display table, value order assumed): the first synth key after all keys were '
+      + 'lifted resets the clock, with soft only after more than a quarter note; which keys may reset it follows the '
+      + 'layers\' kb sync (M p.37), combined as assumed' },
+  'common.pdlTapEnable': { label: 'tap pedal', status: 'stored', options: OFF_ON, kind: 'bool', stored: PEDAL_LINE,
+    note: 'M p.40: a pedal taps the tempo; the editor has no pedal input (the tap key next to the master clock taps it)' },
 
   // Organ section, scene I (M p.18–22, 53)
   'common.sectionEnableOrg_I': { label: 'organ on', status: 'live' },
@@ -156,13 +173,16 @@ export const CURATED: Readonly<Record<string, Curated>> = {
   'organ.effectsLeslieEnable': { label: 'rotary', status: 'live', note: 'M p.53: the organ goes through the rotary speaker' },
   'organ.effectsLeslieSpeed': { label: 'speed', status: 'unverified', note: 'M p.53; the rotor speeds and ramps are a guess' },
   'organ.effectsLeslieStopMode': { label: 'stop', status: 'live', note: 'M p.53: with slow, the rotors stop' },
-  'organ.leslieStopPreset': { label: 'stop pos', status: 'stored', note: 'M p.53: stop angle; not applied in the editor' },
+  'organ.leslieStopPreset': { label: 'stop pos', status: 'stored',
+    note: 'M p.53: the rotor angle when the rotary stops; the editor\'s rotary model does not apply it' },
   'organ.effectsLeslieDrv': { label: 'drive', status: 'unverified', note: 'M p.53; the drive curve is a guess' },
   'organ.leslieMicDistance': { label: 'mic', status: 'unverified', kind: 'bool',
     options: [{ value: 0, label: 'normal' }, { value: 1, label: 'close' }],
     note: 'M p.53: close mic; no display table, 0 normal and 1 close assumed' },
-  'organ.leslieRotorAngle': { label: 'rotor angle', status: 'stored', note: 'stored rotor angle; not applied in the editor' },
-  'organ.leslieHornAngle': { label: 'horn angle', status: 'stored', note: 'stored horn angle; not applied in the editor' },
+  'organ.leslieRotorAngle': { label: 'rotor angle', status: 'stored',
+    note: 'the stored angle of the rotary\'s drum; the editor\'s rotary model does not apply it' },
+  'organ.leslieHornAngle': { label: 'horn angle', status: 'stored',
+    note: 'the stored angle of the rotary\'s horn; the editor\'s rotary model does not apply it' },
 
   // Piano section, scene I (M p.23–26)
   'common.sectionEnablePno_I': { label: 'piano on', status: 'live' },
@@ -179,10 +199,18 @@ export const CURATED: Readonly<Record<string, Curated>> = {
   'synth.layerFocusSyn_I': { label: 'focus', status: 'live', kind: 'enum', options: LAYER_NAMES, note: FOCUS_NOTE },
   'synth.layerLevelSyn{L}': { label: 'level', status: 'live' },
   'synth.layerPanSyn{L}': { label: 'pan', status: 'unverified', note: `${NO_TABLE}; equal-power pan assumed` },
-  'synth.multiLayerFlt': { label: 'filter group', status: 'stored', note: NO_SOUND },
-  'synth.multiLayerArp': { label: 'arp group', status: 'stored', note: NO_SOUND },
-  'synth.multiLayerLFO': { label: 'lfo group', status: 'stored', note: NO_SOUND },
-  'synth.kbdHoldEnableCommon': { label: 'kb hold', status: 'stored', note: NO_SOUND },
+  'synth.multiLayerFlt': { label: 'filter group', status: 'live', kind: 'bool', options: OFF_ON,
+    note: 'M p.32: switching it on gives every synth layer the focused layer\'s filter settings, and edits stay in sync; '
+      + 'no display table, 1 = on assumed' },
+  'synth.multiLayerArp': { label: 'arp group', status: 'live',
+    note: 'M p.35: switching it on gives every synth layer the focused layer\'s arpeggiator settings, and edits stay in '
+      + 'sync; grouped arpeggios step together' },
+  'synth.multiLayerLFO': { label: 'lfo group', status: 'live', kind: 'bool', options: OFF_ON,
+    note: 'M p.34: switching it on gives every synth layer the focused layer\'s LFO settings, edits stay in sync and the '
+      + 'LFOs restart in phase; no display table, 1 = on assumed' },
+  'synth.kbdHoldEnableCommon': { label: 'kb hold', status: 'unverified',
+    note: 'M p.36: notes keep sounding after the keys are lifted; that the next key after all keys were lifted starts a '
+      + 'new chord (while keys are down new notes join) is assumed' },
 
   // Oscillator
   'synth{L}.mode': { label: 'mode', status: 'live', optionStatus: {
@@ -197,8 +225,10 @@ export const CURATED: Readonly<Record<string, Curated>> = {
     note: 'meaning per category from the manual; the curve is a guess' },
   'synth{L}Sound.oscTuneCoarse': { label: 'pitch', status: 'live' },
   'synth{L}Sound.oscTuneFine': { label: 'fine', status: 'live' },
-  'synth{L}Sound.smpDynamic': { label: 'sample dyn', status: 'stored', note: 'sample option; samples are not in the MVP' },
-  'synth{L}Sound.smpTimbre': { label: 'bright', status: 'stored', note: 'sample option; samples are not in the MVP' },
+  'synth{L}Sound.smpDynamic': { label: 'sample dyn', status: 'stored', stored: SAMPLES_LINE,
+    note: 'a samples mode option; samples mode needs Nord samples, which the editor does not have' },
+  'synth{L}Sound.smpTimbre': { label: 'bright', status: 'stored', stored: SAMPLES_LINE,
+    note: 'a samples mode option; samples mode needs Nord samples, which the editor does not have' },
   'synth{L}.libName': { kind: 'opaque', note: 'sample library reference' },
   'synth{L}.smpId': { kind: 'opaque', note: 'sample slot reference' },
 
@@ -236,9 +266,12 @@ export const CURATED: Readonly<Record<string, Curated>> = {
   // LFO and vibrato
   'synth{L}Sound.lfoWave': { label: 'wave', status: 'live' },
   'synth{L}Sound.lfoDst': { label: 'dest', status: 'live' },
-  'synth{L}Sound.lfoRateClkDiv': { label: 'rate', status: 'unverified', note: `${NO_TABLE}; the Hz curve is a guess` },
+  'synth{L}Sound.lfoRateClkDiv': { label: 'rate', status: 'unverified', kind: 'continuous',
+    optionsBy: { dep: 'synth{L}Sound.lfoClkEnable', sets: { 1: divisionOptions(LFO_DIVISIONS) }, fallback: RAW_RATE_OPTIONS },
+    note: `${NO_TABLE}; free: the Hz curve is a guess; ${SYNCED} (M p.34)` },
   'synth{L}Sound.lfoAmt': { label: 'amount', status: 'unverified', note: `${NO_TABLE}; the depth is a guess` },
-  'synth{L}Sound.lfoClkEnable': { label: 'mst clk', status: 'stored', note: 'no master clock in the MVP' },
+  'synth{L}Sound.lfoClkEnable': { label: 'mst clk', status: 'live',
+    note: 'M p.34: the LFO rate becomes a division of the master clock tempo' },
   'synth{L}.vibMode': { label: 'vibrato', status: 'live',
     note: 'WHL follows MIDI CC1, A.T. channel pressure, PED CC11 (MIDI input only)' },
   'synth{L}Sound.vibRate': { label: 'vib rate', status: 'live' },
@@ -261,17 +294,29 @@ export const CURATED: Readonly<Record<string, Curated>> = {
   'synth{L}.pitchStickRange': { label: 'stick range', status: 'live' },
   'synth{L}.sustainEnable': { label: 'sustain', status: 'live' },
   'synth{L}.kbZone': { label: 'kb zone', status: 'live', note: `M p.39; ${ROUTER}` },
-  'synth{L}.kbdHoldEnableLayer': { label: 'kb hold', status: 'stored', note: NO_SOUND },
+  'synth{L}.kbdHoldEnableLayer': { label: 'kb hold', status: 'live',
+    note: 'M p.36: exclude keeps the layer out of KB Hold' },
 
   // Arpeggiator and gate
-  'synth{L}.arpRun': { label: 'run', status: 'stored', note: NO_SOUND },
-  'synth{L}.arpMode': { label: 'mode', status: 'stored', note: NO_SOUND },
-  'synth{L}.arpDir': { label: 'direction', status: 'stored', note: NO_SOUND },
-  'synth{L}.arpZigZag': { label: 'zigzag', status: 'stored', note: NO_SOUND },
-  'synth{L}.arpKbdSync': { label: 'kb sync', status: 'stored', note: NO_SOUND },
-  'synth{L}.arpRange': { label: 'range', status: 'stored', note: NO_SOUND },
-  'synth{L}.arpRateClkDiv': { label: 'rate', status: 'stored', note: `${NO_SOUND}; ${NO_TABLE}` },
-  'synth{L}.arpClkEnable': { label: 'mst clk', status: 'stored', note: NO_SOUND },
-  'synth{L}.arpPtnEnable': { label: 'pattern', status: 'stored', note: NO_SOUND },
-  'synth{L}.arpPtnLen': { label: 'pattern len', status: 'stored', note: NO_SOUND },
+  'synth{L}.arpRun': { label: 'run', status: 'live', note: 'M p.35: the arpeggiator or gate runs' },
+  'synth{L}.arpMode': { label: 'mode', status: 'live',
+    note: 'M p.35: Arp plays the held notes one after the other, Poly plays them together, Gate opens and closes the '
+      + 'sound on every step' },
+  'synth{L}.arpDir': { label: 'direction', status: 'live', note: 'M p.17, 35; no effect on the gate' },
+  'synth{L}.arpZigZag': { label: 'zigzag', status: 'unverified',
+    note: 'M p.17, 35: two steps forward, one back; how it turns at the ends is a guess' },
+  'synth{L}.arpKbdSync': { label: 'kb sync', status: 'unverified',
+    note: 'M p.37: the first key after all keys were lifted restarts the arpeggio or gate; with mst clk it may reset the '
+      + 'master clock instead (see the master clock\'s kb sync; the combination is assumed)' },
+  'synth{L}.arpRange': { label: 'range', status: 'unverified',
+    note: 'M p.17, 35: up to 4 octaves in steps of a third of an octave, the 0.0–10.0 display spread linearly over them '
+      + '(assumed); in Gate mode the envelope: soft at 0, hard at 10' },
+  'synth{L}.arpRateClkDiv': { label: 'rate', status: 'unverified', kind: 'continuous',
+    optionsBy: { dep: 'synth{L}.arpClkEnable', sets: { 1: divisionOptions(ARP_DIVISIONS) }, fallback: ARP_FREE_OPTIONS },
+    note: `${NO_TABLE}; free: quarter-note BPM with a step of an eighth note (M p.36), 30–240 BPM spread linearly `
+      + `(assumed); ${SYNCED} (M p.36)` },
+  'synth{L}.arpClkEnable': { label: 'mst clk', status: 'live',
+    note: 'M p.36: the rate becomes a division of the master clock tempo' },
+  'synth{L}.arpPtnEnable': { label: 'pattern', status: 'unverified', note: `M p.35–36; ${PATTERN}` },
+  'synth{L}.arpPtnLen': { label: 'pattern len', status: 'unverified', note: `M p.36: 2–16 steps; ${PATTERN}` },
 };

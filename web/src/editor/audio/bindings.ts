@@ -22,7 +22,8 @@ import type { VoiceUpdate } from './voice.ts';
 export type Effect =
   | 'layers' | 'focus' | 'layerBus' | 'lfo' | 'vibrato' | 'bend'
   | VoiceUpdate
-  | 'envTimes' | 'ampVelocity' | 'voicing' | 'glide' | 'unison' | 'vibDelay';
+  | 'envTimes' | 'ampVelocity' | 'voicing' | 'glide' | 'unison' | 'vibDelay'
+  | 'arp' | 'arpGroup' | 'hold' | 'group' | 'lfoGroup';
 
 export type Apply = 'live' | 'next-stage' | 'next-note' | 'none';
 
@@ -46,6 +47,12 @@ export const BINDINGS: Readonly<Record<string, Binding>> = {
   'synth.layerFocusSyn_I': b('focus', 'none', 'section', 'none: selects the layer the panel edits'),
   'synth.layerLevelSyn{L}': b('layerBus', 'live', 'layer', 'layer bus GainNode.gain'),
   'synth.layerPanSyn{L}': b('layerBus', 'live', 'layer', 'layer StereoPannerNode.pan'),
+  // Groups (M p.32, 34, 35): the store keeps the grouped settings of every layer equal (model/actions.ts).
+  'synth.multiLayerFlt': b('group', 'live', 'section', 'filter settings of every layer, kept equal by the store'),
+  'synth.multiLayerArp': b('arpGroup', 'live', 'section', 'arpeggiator step grids of every layer aligned'),
+  'synth.multiLayerLFO': b('lfoGroup', 'live', 'section', 'LFO sources of every layer restarted in phase'),
+  // KB hold (M p.36)
+  'synth.kbdHoldEnableCommon': b('hold', 'live', 'section', 'notes kept after key-up; off releases them'),
 
   // Oscillator
   'synth{L}.mode': b('source', 'live', 'voice', 'oscillator graph (samples: silent)'),
@@ -88,6 +95,7 @@ export const BINDINGS: Readonly<Record<string, Binding>> = {
   'synth{L}Sound.lfoDst': b('lfo', 'live', 'layer', 'LFO depth GainNodes (pitch, filter, osc ctrl)'),
   'synth{L}Sound.lfoRateClkDiv': b('lfo', 'live', 'layer', 'LFO frequency'),
   'synth{L}Sound.lfoAmt': b('lfo', 'live', 'layer', 'LFO depth GainNodes'),
+  'synth{L}Sound.lfoClkEnable': b('lfo', 'live', 'layer', 'LFO frequency from a master clock division'),
   'synth{L}.vibMode': b('vibrato', 'live', 'layer', 'vibrato depth GainNode.gain'),
   'synth{L}Sound.vibRate': b('vibrato', 'live', 'layer', 'vibrato OscillatorNode.frequency'),
   'synth{L}Sound.vibAmt': b('vibrato', 'live', 'layer', 'vibrato depth GainNode.gain'),
@@ -105,16 +113,22 @@ export const BINDINGS: Readonly<Record<string, Binding>> = {
   'synth{L}.pitchStickRange': b('bend', 'live', 'layer', 'bend ConstantSourceNode.offset'),
   'synth{L}.sustainEnable': b('voicing', 'next-note', 'section', 'voice allocator sustain'),
   'synth{L}.kbZone': b('layers', 'next-note', 'section', 'router: the keyboard zones the layer plays'),
+  'synth{L}.kbdHoldEnableLayer': b('hold', 'live', 'layer', 'notes of the layer kept after key-up; exclude releases them'),
+
+  // Arpeggiator and gate (M p.35–37): read by the scheduler at the next step; run and mode switch the note path.
+  ...Object.fromEntries(['arpRun', 'arpMode', 'arpDir', 'arpZigZag', 'arpKbdSync', 'arpRange', 'arpRateClkDiv',
+    'arpClkEnable', 'arpPtnEnable', 'arpPtnLen'].map((p) => [`synth{L}.${p}`,
+    b('arp', 'live', 'layer', 'arpeggiator: note events or gate GainNode automation from the next step')])),
 };
 
-/** The binding of a field, or null for fields that do not sound in the MVP. */
+/** The binding of a field, or null for fields that do not sound in the editor. */
 export function bindingOf(key: Ns4Key): Binding | null {
   const scene = parseSceneKey(key);
   const pattern = patternOf(scene === null ? key : sceneKey(scene.field, 'I'));
   return Object.hasOwn(BINDINGS, pattern) ? BINDINGS[pattern]! : null;
 }
 
-/** The synth fields that sound in the MVP: status live or unverified, in the synth region. */
+/** The synth fields that sound in the editor: status live or unverified, in the synth region. */
 export function soundingKeys(): Ns4Key[] {
   return [...DESCRIPTORS.values()]
     .filter((d) => d.region === 'synth' && (d.status === 'live' || d.status === 'unverified'))

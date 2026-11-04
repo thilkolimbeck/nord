@@ -2,8 +2,8 @@
  * Control primitives bound to the store (docs/web-design.md, "Controls"): fader, enum select,
  * switch key, layer mask and read-only readout, plus the organ drawbar (a vertical fader) and the
  * piano model select. Each has a visible label, the value with its unit, the range and status
- * notes in the description (aria-describedby), the status markers ('nv', 'coarse', '≈',
- * 'no sound in MVP') and a read-only morph dot. rebind(key) moves a control to the same field of
+ * notes in the description (aria-describedby), the status markers ('nv', 'coarse', '≈', the
+ * stored line such as 'stored setting, no sound') and a read-only morph dot. rebind(key) moves a control to the same field of
  * another layer or scene; dispose() removes listeners and subscriptions.
  */
 import { setPianoModel } from '../model/actions.ts';
@@ -12,7 +12,7 @@ import { type Ns4Key, patternOf } from '../model/keys.ts';
 import type { ParamStore } from '../model/store.ts';
 import {
   APPROX_PIANO, controlKind, controlPattern, descriptionText, isCoarse, isOffOn, morphAmounts, morphLabel, optionText, sectionLayerOf,
-  shownDeps, shownValue, STORED_LINE, valueView, writeControl,
+  shownDeps, shownValue, storedLine as storedText, valueView, writeControl,
 } from './control-model.ts';
 import { h, listen, uid } from './dom.ts';
 import { MODEL_GROUPS, modelChoice } from './region-model.ts';
@@ -46,7 +46,7 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
   const suffix = h('span', { class: 'ctl-suffix' });
   const valueCell = h('span', { class: 'ctl-value', id: ids.value }, valueText, suffix);
   const desc = h('span', { class: 'visually-hidden', id: ids.desc });
-  const storedLine = h('span', { class: 'ctl-stored', id: ids.stored, hidden: true }, STORED_LINE);
+  const storedLine = h('span', { class: 'ctl-stored', id: ids.stored, hidden: true }, storedText(d));
   const row = h('div', { class: `ctl ctl-${kind}`, 'data-key': d.key });
 
   const offs: (() => void)[] = [];
@@ -60,7 +60,7 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
   if (kind === 'fader') {
     const input = h('input', { class: 'fader', type: 'range', id: ids.input, step: 1 });
     offs.push(listen(input, 'input', () => {
-      store.set(d.key, Number(input.value), 'ui');
+      writeControl(store, d, Number(input.value));
       onTouch(d.key);
     }));
     middle = input;
@@ -153,6 +153,7 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
     row.toggleAttribute('data-nv', v.nv);
     row.dataset['status'] = d.status;
     storedLine.hidden = !v.stored;
+    storedLine.textContent = storedText(d);
     desc.textContent = descriptionText(d, value, store, coarse);
     const name = morphLabel(morphAmounts(d, store, descriptorOf));
     dot.hidden = name === null;

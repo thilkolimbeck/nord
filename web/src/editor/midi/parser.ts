@@ -43,7 +43,7 @@ export function parseMidiMessage(data: Uint8Array): MidiEvent | null {
     case 0xe0:
       return isData(a) && isData(b) ? { type: 'bend', channel, value: ((b << 7) | a) - 8192 } : null;
     default:
-      // 0xA0 polyphonic aftertouch, 0xC0 program change: not used by the MVP.
+      // 0xA0 polyphonic aftertouch, 0xC0 program change: not used by the editor.
       return null;
   }
 }

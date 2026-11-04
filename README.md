@@ -33,8 +33,12 @@ newer.
 - Every control works with the keyboard and shows its value, unit and range.
   "nv" marks a value that is not verified (no Stage 4 display table, or a
   guessed curve), "coarse" one the browser engine only approximates, "≈" an
-  organ or piano control whose sound is an approximation, "no sound in MVP"
-  one that is stored and exported but not played.
+  organ or piano control whose sound is an approximation. A control that is
+  stored and exported but not played carries a line that says why: "stored
+  setting, no sound", "pedal assignment, stored" or "samples mode only · not
+  implemented (no nord samples)".
+- Master clock: the `tap` key next to the tempo sets it from four taps or more
+  (mouse, touch or keyboard).
 - Virtual keyboard: mouse, touch and pen, several notes at once; velocity
   comes from where you press the key (top soft, bottom loud).
 - Computer keyboard, by key position (so the shape holds on QWERTZ): A S D F
@@ -73,13 +77,19 @@ All of it as approximations:
   295 piano names can be picked; a name only selects a sound family, no
   Nord sample.
 - Synth, layers A, B and C: analog oscillators, FM approximated, filter,
-  three envelopes, LFO, vibrato, voice modes, unison, glide, 46 voices.
+  three envelopes, LFO, vibrato, voice modes, unison, glide, 46 voices; the
+  arpeggiator and gate (Arp, Poly and Gate modes, direction, zig zag, range,
+  KB sync, pattern step count), KB hold with per-layer exclude, the filter,
+  LFO and arpeggiator groups.
+- Master clock: tempo, keyboard sync (off, on, soft) and tap tempo; the
+  arpeggiators and synth LFOs with Mst Clk follow it.
 
 Not implemented, shown and stored but silent: the layer effects of every
 section, Nord samples and the Wave oscillator type (proprietary), extern,
-the arpeggiator's sound, the master clock, morph editing (non-zero morphs
-show as a dot on their control). Preset Library references, the aux
-keyboard and output routing are read-only.
+morph editing (non-zero morphs show as a dot on their control), and a few
+stored settings (pedal assignments, the organ's preset switch and rotary
+angles, the piano slot). Preset Library references, the aux keyboard and
+output routing are read-only.
 
 ## Files
 
@@ -114,6 +124,11 @@ In the files box:
 - The export is experimental and untested on hardware.
 - Layer enable bits, scene handling and the organ and piano layer bits are
   assumptions, unverified on hardware, as are the curves and units marked nv.
+- Arpeggiator: the free rate's BPM curve, the master clock divisions, the
+  range curve and how KB sync and the master clock's keyboard sync combine
+  are guesses (marked nv). The pattern content (accent, step length, pan) is
+  not decoded, so a pattern plays every step alike; only its step count is
+  used.
 
 Plan and decisions: `docs/editor-plan.md`; what is known about the Stage 4:
 `docs/editor-feasibility.md`; design spec: `docs/web-design.md`.

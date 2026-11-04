@@ -74,7 +74,10 @@ function describe(values: Readonly<Record<Ns4Key, number>>): string[] {
         notes.push(`synth layer ${l} uses the wave oscillator type: not implemented, the layer is silent`);
       }
       if (values[`synth${layer}.externEnable`] === 1) notes.push(`synth layer ${l} has extern on: not implemented`);
-      if (values[`synth${layer}.arpRun`] === 1) notes.push(`synth layer ${l} has the arpeggiator on: stored, no sound in the editor`);
+      if (values[`synth${layer}.arpRun`] === 1) {
+        notes.push(`synth layer ${l} has the arpeggiator on: it plays; rate, range and divisions are approximated `
+          + 'and the pattern content is not decoded (every step plays)');
+      }
     }
   } else {
     notes.push(`the synth section is off in scene ${scene}: switch a layer on to hear it`);

@@ -8,8 +8,8 @@
  */
 import { expandPattern, isNs4Key, LAYER_TOKEN, layerKey, NS4_KEYS, type Ns4Key, type SynthLayer } from './keys.ts';
 
-/** live: drives the MVP sound with known units; unverified: drives it, units or behaviour guessed;
- * stored: no sound in the MVP, still edited, stored and exported; layout: region not implemented. */
+/** live: drives the sound with known units; unverified: drives it, units or behaviour guessed;
+ * stored: no sound, still edited, stored and exported; layout: region not implemented. */
 export type ParamStatus = 'live' | 'unverified' | 'stored' | 'layout';
 /** 'rotary' is no longer a region of its own (its fields are the organ region's group 'rotary', plan
  * section 13.1); the id stays in the type so code that still names it compiles. */
@@ -69,7 +69,7 @@ export const PANEL: readonly Region[] = [
       },
       { id: 'transpose', title: 'transpose', status: 'live', keys: ['common.transposeEnable', 'common.transposeValue'] },
       {
-        id: 'clock', title: 'master clock', status: 'stored',
+        id: 'clock', title: 'master clock', status: 'live',
         keys: ['common.masterClockRate', 'common.masterClockKbdSync', 'common.pdlTapEnable'],
       },
       {
@@ -155,7 +155,7 @@ export const PANEL: readonly Region[] = [
           `${S}oscEnvDst`, `${S}oscEnvAmt`, `${S}oscEnvVel`],
       },
       {
-        id: 'arp', title: 'arp', status: 'stored', keys: [`${Y}arpRun`, `${Y}arpMode`, `${Y}arpDir`, `${Y}arpZigZag`,
+        id: 'arp', title: 'arp', status: 'live', keys: [`${Y}arpRun`, `${Y}arpMode`, `${Y}arpDir`, `${Y}arpZigZag`,
           `${Y}arpKbdSync`, `${Y}arpRange`, `${Y}arpRateClkDiv`, `${Y}arpClkEnable`, `${Y}arpPtnEnable`,
           `${Y}arpPtnLen`],
       },

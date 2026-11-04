@@ -1,14 +1,14 @@
 /**
  * One descriptor per Stage 4 field: kind, range, default, unit, labels, status and where it sits.
  * Derived from the layout (range, default, encoding), the display tables (labels and units) and
- * curated.ts (short labels, MVP status, notes, manual labels), as plan section 3.1 describes.
+ * curated.ts (short labels, status, notes, manual labels), as plan section 3.1 describes.
  * Fields of a live region take their status from curated.ts (or a stored or layout group's);
  * scene II copies take kind, options, status and note from their scene I twin (plan section 13.1).
  */
 import { NS4_LAYOUT, type Encoding } from '../../ns4/layout.ts';
 import { FIELD_DEP, FIELD_VALUE_TABLE, PORT_NAMES } from '../generated/display-ns4.ts';
-import { CURATED, type Curated } from './curated.ts';
-import { isNs4Key } from './keys.ts';
+import { CURATED, type Curated, STORED_LINE } from './curated.ts';
+import { isNs4Key, LAYER_TOKEN, layerKey } from './keys.ts';
 import { pianoModel } from './pianos.ts';
 import { parseSceneKey, sceneKey } from './scene.ts';
 import { layerOf, NS4_KEYS, type Ns4Key, patternOf, type SynthLayer } from './keys.ts';
@@ -68,6 +68,8 @@ export interface ParamDescriptor {
   readonly morphs: Morphs | null;
   /** Why the field is unverified or silent, or what its labels are based on. */
   readonly note: string | null;
+  /** For a stored field (no sound): the short line under its control ('stored setting, no sound'); null otherwise. */
+  readonly storedLine: string | null;
 }
 
 export interface Formatted {
@@ -180,10 +182,15 @@ function build(key: Ns4Key): ParamDescriptor {
   if (parent !== null) labels = { kind: 'continuous', labelSource: 'raw', unit: null, options: null };
   else if (opaque) labels = { kind: 'opaque', labelSource: 'raw', unit: null, options: null };
   else if (cur?.optionsBy !== undefined) {
-    const dep = cur.optionsBy.dep;
+    // '{L}' names the field's own synth layer (the arp rate follows the layer's mst clk switch).
+    const layer = layerOf(key);
+    const named = cur.optionsBy.dep;
+    const dep = named.includes(LAYER_TOKEN) && layer !== null ? layerKey(layer, named) : named;
     if (!isNs4Key(dep)) throw new Error(`${key}: option dependency ${dep} is not a Stage 4 field`);
     optionSets = { dep, sets: cur.optionsBy.sets, fallback: cur.optionsBy.fallback };
-    labels = { kind: 'enum', labelSource: 'manual', unit: null, options: null };
+    // A rate with labels per mode stays a fader (continuous); other option sets are selects.
+    const kind = cur.kind === 'continuous' ? 'continuous' : 'enum';
+    labels = { kind, labelSource: 'manual', unit: kind === 'continuous' ? '' : null, options: null };
   } else if (cur?.options !== undefined) {
     const kind = cur.kind ?? 'enum';
     // A continuous field with manual labels (drawbars 0–8, the clock in BPM) has no table unit.
@@ -207,7 +214,7 @@ function build(key: Ns4Key): ParamDescriptor {
     region: placement?.region.id ?? null, group: placement?.group.id ?? null, layer: layerOf(key),
     label, unit: labels.unit, labelSource: labels.labelSource, status, options: labels.options,
     deps: optionSets !== null ? [optionSets.dep] : labels.labelSource === 'dep' ? labelDeps(key) : [],
-    optionSets, morphs, note,
+    optionSets, morphs, note, storedLine: status === 'stored' ? cur?.stored ?? STORED_LINE : null,
   };
 }
 

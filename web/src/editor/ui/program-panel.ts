@@ -2,10 +2,12 @@
  * The program region (docs/web-design.md, "Editor: program, organ and piano regions"; plan section
  * 13.4), one line of controls: layer scene keys I II, section keys organ piano synth with their
  * LEDs (on or off in the active scene), the three split points (key, position, xfade), transpose
- * and the master clock (stored, no sound). Morph assignments and the preset references, aux
- * keyboard and output routing stay read-only behind "show values".
+ * and the master clock (tempo, a tap key that sets it from taps, keyboard sync, the tap pedal
+ * switch). Morph assignments and the preset references, aux keyboard and output routing stay
+ * read-only behind "show values".
  */
 import { setSectionEnabled } from '../model/actions.ts';
+import { TapTempo } from '../model/clock.ts';
 import { descriptorOf } from '../model/descriptors.ts';
 import { NS4_KEYS, type Ns4Key } from '../model/keys.ts';
 import { keysOf, morphParent, PANEL } from '../model/sections.ts';
@@ -82,8 +84,24 @@ export function mountProgramPanel(root: HTMLElement, store: ParamStore, onTouch:
     make(`common.splitEnabled${p}` as Ns4Key), make(`common.splitPos${p}` as Ns4Key),
     make(`common.splitWidth${p}` as Ns4Key))));
   const transposeGroup = group('transpose', 'transpose', make('common.transposeEnable'), make('common.transposeValue'));
-  const clockGroup = group('clock', 'master clock', make('common.masterClockRate'), make('common.masterClockKbdSync'),
-    make('common.pdlTapEnable'));
+  // Tap tempo (M p.17, 40): four taps or more set the tempo; mouse, touch and keyboard all click.
+  const tapper = new TapTempo();
+  const tapDescId = uid('tap-desc');
+  const tapKey = h('button', { class: 'bool-key tap-key', type: 'button', 'aria-label': 'tap tempo',
+    'aria-describedby': tapDescId }, h('span', { 'aria-hidden': 'true' }, 'tap'));
+  // A held Enter repeats clicks about every 30 ms, which would read as a fast tempo: only the first counts.
+  offs.push(listen(tapKey, 'keydown', (ev) => {
+    if ((ev as KeyboardEvent).repeat) ev.preventDefault();
+  }));
+  offs.push(listen(tapKey, 'click', (ev) => {
+    const bpm = tapper.tap(ev.timeStamp / 1000);
+    if (bpm !== null) store.set('common.masterClockRate', bpm, 'ui');
+    onTouch('common.masterClockRate');
+  }));
+  const clockGroup = group('clock', 'master clock', make('common.masterClockRate'),
+    h('div', { class: 'key-row' }, tapKey,
+      h('span', { class: 'visually-hidden', id: tapDescId }, 'tap four times or more to set the master clock tempo')),
+    make('common.masterClockKbdSync'), make('common.pdlTapEnable'));
 
   // Read-only values: split on, morph assignments, preset references, aux kb, output.
   const bodyId = uid('program-values');

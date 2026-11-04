@@ -5,8 +5,10 @@
  * display.ts render these; the tests check them in Node.
  */
 import {
-  setOscBank, setPianoType, setSectionEnabled, setSplitPoint, type SplitPoint, splitPointOn,
+  groupOfSwitch, setOscBank, setPianoType, setSectionEnabled, setSplitPoint, setSynthGroup, setSynthParam, type SplitPoint,
+  splitPointOn,
 } from '../model/actions.ts';
+import { STORED_LINE } from '../model/curated.ts';
 import { type EnumOption, formatValue, optionsFor, type ParamDescriptor } from '../model/descriptors.ts';
 import { isNs4Key, LAYER_TOKEN, layerKey, layerOf, type Ns4Key, patternOf, type SynthLayer } from '../model/keys.ts';
 import type { ValueReader } from '../model/labels.ts';
@@ -41,7 +43,7 @@ export const APPROX_SUFFIX = '≈';
 const APPROX_ORGAN = 'approximation: an additive model in the browser, not the Stage 4 organ';
 export const APPROX_PIANO = 'approximation: synthesized in the browser, no Nord samples';
 
-export const STORED_LINE = 'no sound in MVP';
+export { STORED_LINE };
 const NO_LABEL = 'no Stage 4 label for this value';
 
 export interface ValueView {
@@ -51,7 +53,7 @@ export interface ValueView {
   readonly nv: boolean;
   /** Approximated by the browser engine. Shown as the suffix 'coarse'. */
   readonly coarse: boolean;
-  /** Stored and exported, but not in the MVP sound. Shown as the line 'no sound in MVP'. */
+  /** Stored and exported, but silent. Shown as the field's stored line ('stored setting, no sound'). */
   readonly stored: boolean;
   /** An organ or piano sound the browser invents. Shown as the suffix '≈'. */
   readonly approx: boolean;
@@ -119,8 +121,9 @@ const SPLIT_KEY = /^common\.splitEnabled(Low|Mid|High)$/;
 /**
  * Write a control's new value. Writes that change more than one field go through the model's
  * actions: a section switch of either scene (setSectionEnabled with the key's own scene), a split
- * point (setSplitPoint, which keeps `common.splitEnabled` in step), a piano type (setPianoType)
- * and a synth osc bank (setOscBank). Every other field is a plain store write.
+ * point (setSplitPoint, which keeps `common.splitEnabled` in step), a piano type (setPianoType),
+ * a synth osc bank (setOscBank), a synth Group switch (setSynthGroup) and a field of a synth Group
+ * that is on (setSynthParam writes every layer). Every other field is a plain store write.
  */
 export function writeControl(store: ParamStore, d: ParamDescriptor, value: number): void {
   const pattern = controlPattern(d.key);
@@ -132,7 +135,14 @@ export function writeControl(store: ParamStore, d: ParamDescriptor, value: numbe
   else if (section !== undefined) setSectionEnabled(store, section, value !== 0, scene!.scene);
   else if (split !== null) setSplitPoint(store, split[1] as SplitPoint, value !== 0);
   else if (pattern === 'piano{L}.bank' && own !== null) setPianoType(store, own.layer, value);
+  else if (groupOfSwitch(d.key) !== null) setSynthGroup(store, groupOfSwitch(d.key)!, value !== 0);
+  else if (d.layer !== null) setSynthParam(store, d.key, value);
   else store.set(d.key, value, 'ui');
+}
+
+/** The line under a stored control. */
+export function storedLine(d: ParamDescriptor): string {
+  return d.storedLine ?? STORED_LINE;
 }
 
 /**
@@ -210,7 +220,7 @@ export function rangeText(d: ParamDescriptor, values: ValueReader): string {
 
 /**
  * The description a control points at with aria-describedby: the range, then the status notes.
- * 'range 14 Hz–32 kHz. not verified: the Q curve is a guess. no sound in MVP: …'
+ * 'range 14 Hz–32 kHz. not verified: the Q curve is a guess. stored setting, no sound: …'
  */
 export function descriptionText(d: ParamDescriptor, value: number, values: ValueReader, coarse = isCoarse(d)): string {
   const parts: string[] = [];
@@ -220,7 +230,7 @@ export function descriptionText(d: ParamDescriptor, value: number, values: Value
   if (d.status === 'unverified') parts.push(`not verified: ${d.note ?? NO_LABEL}`);
   else if (f.marker === 'not decoded') parts.push('not verified: the Stage 4 table says not decoded for this value');
   else if (f.marker === 'raw' && d.status !== 'stored') parts.push(`not verified: ${d.note ?? NO_LABEL}`);
-  if (d.status === 'stored') parts.push(`${STORED_LINE}: ${d.note ?? 'stored and exported'}`);
+  if (d.status === 'stored') parts.push(`${storedLine(d)}: ${d.note ?? 'stored and exported'}`);
   if (d.status === 'layout') parts.push('not implemented: shown for reference, stored and exported');
   if (coarse) parts.push('coarse: the browser engine only approximates this');
   if (isApprox(d)) parts.push(d.key.startsWith('piano') ? APPROX_PIANO : APPROX_ORGAN);
@@ -272,7 +282,7 @@ export function displayStateLine(d: ParamDescriptor | null, value: number, value
   let status: string | null = null;
   if (d !== null) {
     const v = valueView(d, value, values);
-    status = v.stored ? STORED_LINE : v.nv ? 'not verified' : v.coarse ? 'coarse' : v.approx ? 'approximation' : 'live';
+    status = v.stored ? storedLine(d) : v.nv ? 'not verified' : v.coarse ? 'coarse' : v.approx ? 'approximation' : 'live';
   }
   return [status, `edited ${edited}`].filter((s) => s !== null).join(' · ');
 }

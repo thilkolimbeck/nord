@@ -11,6 +11,7 @@ import {
   isRouterKey, routeNote, Router, SPLIT_NOTES, type SplitBoundary, splitBoundaries, transposeSemitones, zoneGain,
   zoneMask,
 } from '../../src/editor/audio/router.ts';
+import { isClockKey } from '../../src/editor/audio/clock.ts';
 import { type SectionEngine, type SectionEvent, XFADE_FLOOR } from '../../src/editor/audio/section.ts';
 import { DESCRIPTORS } from '../../src/editor/model/descriptors.ts';
 import { initProgram } from '../../src/editor/model/init.ts';
@@ -410,8 +411,11 @@ test('isRouterKey: scene, scene switches, split, transpose and every kbZone; not
   }
 });
 
-test('every live or unverified program-region field is router-owned', () => {
+test('every live or unverified program-region field is router-owned or a master clock key the synth follows', () => {
   for (const d of DESCRIPTORS.values()) {
-    if (d.region === 'program' && (d.status === 'live' || d.status === 'unverified')) assert.ok(isRouterKey(d.key), d.key);
+    if (d.region === 'program' && (d.status === 'live' || d.status === 'unverified')) {
+      assert.ok(isRouterKey(d.key) || isClockKey(d.key), d.key);
+    }
   }
+  assert.ok(!isRouterKey('common.masterClockRate'));
 });

@@ -57,10 +57,14 @@ test('unverified, stored and coarse values carry their markers and notes', () =>
   assert.deepEqual(valueView(res, 64, s).suffixes, ['nv']);
   assert.equal(descriptionText(res, 64, s), `range 0–127. not verified: ${res.note!}`);
 
-  const arp = descriptorOf('synthA.arpRun');
-  const v = valueView(arp, 0, s);
+  const tap = descriptorOf('common.pdlTapEnable');
+  const v = valueView(tap, 0, s);
   assert.deepEqual([v.text, v.stored, v.nv], ['off', true, false]);
-  assert.ok(/^range off–on\. no sound in MVP: /.test(descriptionText(arp, 0, s)));
+  assert.ok(/^range off–on\. pedal assignment, stored: /.test(descriptionText(tap, 0, s)));
+  const angle = descriptorOf('organ.leslieRotorAngle');
+  assert.ok(/stored setting, no sound: /.test(descriptionText(angle, 0, s)), 'the default stored line');
+  const dyn = descriptorOf('synthASound.smpDynamic');
+  assert.ok(/samples mode only · not implemented \(no nord samples\): /.test(descriptionText(dyn, 0, s)));
 
   const drive = descriptorOf('synthASound.fltDrive');
   assert.deepEqual(valueView(drive, 2, s).suffixes, ['nv', 'coarse']);
@@ -135,6 +139,8 @@ test('display lines name layer, label, value, range, status and edits', () => {
   assert.equal(displayParamLine(descriptorOf('common.sectionEnableSyn_I'), 1, s), 'synth · synth on · on · off–on');
   assert.equal(displayStateLine(freq, 127, s, 2), 'live · edited 2');
   assert.equal(displayStateLine(descriptorOf('synthASound.fltRes'), 10, s, 0), 'not verified · edited 0');
-  assert.equal(displayStateLine(descriptorOf('synthA.arpRun'), 0, s, 1), 'no sound in MVP · edited 1');
+  assert.equal(displayStateLine(descriptorOf('synthASound.smpTimbre'), 0, s, 1),
+    'samples mode only · not implemented (no nord samples) · edited 1');
+  assert.equal(displayStateLine(descriptorOf('synthA.arpRun'), 0, s, 1), 'live · edited 1');
   assert.equal(displayStateLine(null, 0, s, 0), 'edited 0');
 });

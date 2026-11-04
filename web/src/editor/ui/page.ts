@@ -52,10 +52,13 @@ export function mountColophon(root: HTMLElement): void {
           + 'means the browser engine only roughly follows the setting.'],
         ['Organ and piano are approximations, marked ≈: an additive organ model with an approximated rotary speaker, '
           + 'and pianos synthesized per piano type. No Nord samples are used; the piano names only pick a sound family.'],
-        ['Extern, the layer effects, the master clock and morphs are not implemented: their values are shown, stored '
-          + 'and exported, but do not sound. The same holds for the arpeggiator, samples mode and the wave oscillator '
-          + 'type, marked no sound in MVP or not implemented. Preset references, the aux keyboard and output routing '
-          + 'are read-only.'],
+        ['The synth arpeggiator and gate, KB hold, the synth groups and the master clock (with a tap key) play. '
+          + 'The arpeggiator\'s rate and range curves and the clock divisions are guesses, marked nv, and the '
+          + 'arpeggiator patterns play flat: their accents, step lengths and pans are not decoded.'],
+        ['Extern, the layer effects and morphs are not implemented: their values are shown, stored and exported, but '
+          + 'do not sound. The same holds for samples mode and the wave oscillator type, marked not implemented, and '
+          + 'for a few stored settings such as the pedal assignments and the rotary angles, marked as stored. Preset '
+          + 'references, the aux keyboard and output routing are read-only.'],
         ['Split crossfades and whether the split note belongs to the upper zone are guesses, like the organ and '
           + 'piano layer bits.'],
         ['The Stage 4 program export is experimental and untested on hardware. Load it into a free slot.'],

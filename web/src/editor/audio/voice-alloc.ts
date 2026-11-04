@@ -75,13 +75,15 @@ export class VoiceAllocator {
     return out;
   }
 
-  noteOff(note: number): VoiceCommand[] {
+  /** Key-up of a note on every layer, or with `layer` on that layer only (the arpeggiator, KB hold). */
+  noteOff(note: number, layer?: SynthLayer): VoiceCommand[] {
     const out: VoiceCommand[] = [];
     for (const v of [...this.#voices.values()]) {
       if (v.mono || v.note !== note || v.state !== 'held') continue;
+      if (layer !== undefined && v.layer !== layer) continue;
       this.#letGo(v, out);
     }
-    for (const layer of this.#mono.values()) this.#monoOff(note, layer, out);
+    for (const [l, mono] of this.#mono) if (layer === undefined || l === layer) this.#monoOff(note, mono, out);
     return out;
   }
 

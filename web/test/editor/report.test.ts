@@ -29,6 +29,7 @@ function fixedSnapshot(): ProgramSnapshot {
     ['synthASound.ampEnvRls', 60],
     ['synth.layerPanSynA', -20],
     ['synthA.arpRun', 1],
+    ['common.pdlTapEnable', 1],
     ['synthB.mode', 0],
     ['synthBSound.oscBank', 3],
     ['synthBSound.oscTuneCoarse', -12],
