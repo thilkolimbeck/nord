@@ -1632,11 +1632,17 @@ a:hover {
     grid-template-columns: auto auto;
   }
 
+  /* A bar docked to the bottom edge: it spans the screen past the page gutter, with square corners
+     and only a hairline on top, so no region border behind it shows at its corners. */
   .region-keyboard {
     position: sticky;
     bottom: 0;
     z-index: 2;
-    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    margin-inline: calc(-1 * max(12px, env(safe-area-inset-left))) calc(-1 * max(12px, env(safe-area-inset-right)));
+    padding: 10px max(12px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
+    border-width: 1px 0 0;
+    border-radius: 0;
     background: var(--panel);
   }
 
