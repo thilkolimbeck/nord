@@ -2,14 +2,17 @@
  * Where every Stage 4 field sits in the editor: regions of the panel (feasibility doc section 4),
  * groups inside them, and HIDDEN for fields that are stored and exported but have no control
  * (reserved bits, scene II copies, morph amounts, opaque hashes and pattern masks). Every layout
- * key belongs to exactly one group or to HIDDEN (sections.test.ts). Only the synth region plays;
- * the others are layout only and show read-only values.
+ * key belongs to exactly one group or to HIDDEN (sections.test.ts). The program, organ, piano and
+ * synth regions play (plan section 13.1; the rotary is a group of the organ region); extern and
+ * the layer effects are layout only and show read-only values.
  */
 import { expandPattern, isNs4Key, LAYER_TOKEN, layerKey, NS4_KEYS, type Ns4Key, type SynthLayer } from './keys.ts';
 
 /** live: drives the MVP sound with known units; unverified: drives it, units or behaviour guessed;
  * stored: no sound in the MVP, still edited, stored and exported; layout: region not implemented. */
 export type ParamStatus = 'live' | 'unverified' | 'stored' | 'layout';
+/** 'rotary' is no longer a region of its own (its fields are the organ region's group 'rotary', plan
+ * section 13.1); the id stays in the type so code that still names it compiles. */
 export type RegionId = 'program' | 'organ' | 'piano' | 'synth' | 'extern' | 'effects' | 'rotary';
 export type GroupId =
   | 'split' | 'transpose' | 'clock' | 'scene' | 'presets' | 'aux-kb' | 'output'
@@ -54,19 +57,19 @@ const L = LAYER_TOKEN;
 const S = `synth${L}Sound.`;
 const Y = `synth${L}.`;
 
-/** The panel, top to bottom; inside the synth region the groups of plan section 3.2. */
+/** The panel, top to bottom; inside the synth region the groups of plan section 3.2, the others per section 13. */
 export const PANEL: readonly Region[] = [
   {
-    id: 'program', title: 'program', status: 'layout', groups: [
-      { id: 'scene', title: 'layer scene', status: 'layout', keys: ['common.layerScene', 'common.pdlLayerSceneEnable'] },
+    id: 'program', title: 'program', status: 'live', groups: [
+      { id: 'scene', title: 'layer scene', status: 'live', keys: ['common.layerScene', 'common.pdlLayerSceneEnable'] },
       {
-        id: 'split', title: 'split', status: 'layout', keys: ['common.splitEnabled', 'common.splitEnabledLow',
+        id: 'split', title: 'split', status: 'live', keys: ['common.splitEnabled', 'common.splitEnabledLow',
           'common.splitEnabledMid', 'common.splitEnabledHigh', 'common.splitPosLow', 'common.splitPosMid',
           'common.splitPosHigh', 'common.splitWidthLow', 'common.splitWidthMid', 'common.splitWidthHigh'],
       },
-      { id: 'transpose', title: 'transpose', status: 'layout', keys: ['common.transposeEnable', 'common.transposeValue'] },
+      { id: 'transpose', title: 'transpose', status: 'live', keys: ['common.transposeEnable', 'common.transposeValue'] },
       {
-        id: 'clock', title: 'master clock', status: 'layout',
+        id: 'clock', title: 'master clock', status: 'stored',
         keys: ['common.masterClockRate', 'common.masterClockKbdSync', 'common.pdlTapEnable'],
       },
       {
@@ -86,27 +89,32 @@ export const PANEL: readonly Region[] = [
     ],
   },
   {
-    id: 'organ', title: 'organ', status: 'layout', groups: [
+    id: 'organ', title: 'organ', status: 'live', groups: [
       {
-        id: 'organ', title: 'organ', status: 'layout', keys: ['common.sectionEnableOrg_I', 'organ.layerEnableOrg_I',
+        id: 'organ', title: 'organ', status: 'live', keys: ['common.sectionEnableOrg_I', 'organ.layerEnableOrg_I',
           'organ.layerFocusOrg_I', 'organ.layerLevelOrgA', 'organ.layerLevelOrgB', 'organ.orgPStickEnable'],
       },
-      { id: 'organ-a', title: 'organ a', status: 'layout', keys: ORGAN_LAYER('A') },
-      { id: 'organ-b', title: 'organ b', status: 'layout', keys: ORGAN_LAYER('B') },
+      { id: 'organ-a', title: 'organ a', status: 'live', keys: ORGAN_LAYER('A') },
+      { id: 'organ-b', title: 'organ b', status: 'live', keys: ORGAN_LAYER('B') },
       {
-        id: 'organ-vibrato', title: 'vibrato · percussion', status: 'layout', keys: ['organ.vibratoTypeB3',
+        id: 'organ-vibrato', title: 'vibrato · percussion', status: 'live', keys: ['organ.vibratoTypeB3',
           'organ.vibratoTypeVox', 'organ.vibratoTypeFarfisa', 'organ.polyPercEnable'],
+      },
+      {
+        id: 'rotary', title: 'rotary', status: 'live', keys: ['organ.effectsLeslieEnable', 'organ.effectsLeslieSpeed',
+          'organ.effectsLeslieStopMode', 'organ.leslieStopPreset', 'organ.effectsLeslieDrv',
+          'organ.leslieMicDistance', 'organ.leslieRotorAngle', 'organ.leslieHornAngle'],
       },
     ],
   },
   {
-    id: 'piano', title: 'piano', status: 'layout', groups: [
+    id: 'piano', title: 'piano', status: 'live', groups: [
       {
-        id: 'piano', title: 'piano', status: 'layout', keys: ['common.sectionEnablePno_I', 'piano.layerEnablePno_I',
+        id: 'piano', title: 'piano', status: 'live', keys: ['common.sectionEnablePno_I', 'piano.layerEnablePno_I',
           'piano.layerFocusPno_I', 'piano.layerLevelPnoA', 'piano.layerLevelPnoB'],
       },
-      { id: 'piano-a', title: 'piano a', status: 'layout', keys: PIANO_LAYER('A') },
-      { id: 'piano-b', title: 'piano b', status: 'layout', keys: PIANO_LAYER('B') },
+      { id: 'piano-a', title: 'piano a', status: 'live', keys: PIANO_LAYER('A') },
+      { id: 'piano-b', title: 'piano b', status: 'live', keys: PIANO_LAYER('B') },
     ],
   },
   {
@@ -170,15 +178,6 @@ export const PANEL: readonly Region[] = [
       { id: 'piano-a-fx', title: 'piano a fx', status: 'layout', keys: FX.map((p) => `pianoAFx.${p}`) },
       { id: 'piano-b-fx', title: 'piano b fx', status: 'layout', keys: FX.map((p) => `pianoBFx.${p}`) },
       { id: 'synth-fx', title: 'synth fx', status: 'layout', keys: FX.map((p) => `synth${L}Fx.${p}`) },
-    ],
-  },
-  {
-    id: 'rotary', title: 'rotary', status: 'layout', groups: [
-      {
-        id: 'rotary', title: 'rotary', status: 'layout', keys: ['organ.effectsLeslieEnable', 'organ.effectsLeslieSpeed',
-          'organ.effectsLeslieStopMode', 'organ.leslieStopPreset', 'organ.effectsLeslieDrv',
-          'organ.leslieMicDistance', 'organ.leslieRotorAngle', 'organ.leslieHornAngle'],
-      },
     ],
   },
 ];

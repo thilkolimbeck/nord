@@ -1,13 +1,16 @@
 /**
- * The browser synth (plan sections 2 and 4): layers A, B and C as enabled in scene I, voices on
- * native nodes, the shared 46-voice cap of voice-alloc.ts, panic, and live parameter changes
- * through bindings.ts. It approximates the Stage 4 synth; it is not the Stage 4 engine.
+ * The browser synth (plan sections 2, 4 and 13.5): layers A, B and C, voices on native nodes, the
+ * shared 46-voice cap of voice-alloc.ts, panic, and live parameter changes through bindings.ts. It
+ * approximates the Stage 4 synth; it is not the Stage 4 engine. As a SectionEngine it plays the
+ * layers the router hands it (active scene, split zones, transpose already applied), each voice
+ * scaled once by its layer's split crossfade gain.
  *
  *   per layer:  LFO ─► depth gains (pitch, filter, osc ctrl) ─► every voice of the layer
  *               vibrato OscillatorNode ─► depth gain ─► every voice (each with its own delay ramp)
  *               bend ConstantSourceNode ─► every voice's pitch
- *               voices ─► layer bus GainNode (level) ─► StereoPannerNode (pan) ─► master
- *   master:     GainNode (-12 dB headroom) ─► DynamicsCompressor as a safety limiter ─► destination
+ *               voice ─► xfade GainNode (split gain) ─► layer bus GainNode (level)
+ *                     ─► StereoPannerNode (pan) ─► out
+ *   out:        the shared MasterBus input (master.ts); without one the engine builds its own
  */
 import type { PlayEvent } from '../input/events.ts';
 import { LAYERS, layerOf, type SynthLayer } from '../model/keys.ts';
@@ -17,11 +20,12 @@ import { bindingOf, type Effect } from './bindings.ts';
 import {
   bendCents, enabledLayers, layerGain, layerPan, type LfoShape, lfoSpec, silentReason, vibDepthCents, vibSpec, voicing,
 } from './mapping.ts';
+import { MasterBus } from './master.ts';
+import type { LayerHit, SectionEngine, SectionEvent, SectionFactory } from './section.ts';
 import { VoiceAllocator, type VoiceCommand } from './voice-alloc.ts';
 import { type LayerTaps, Voice, type VoiceUpdate } from './voice.ts';
 import { basic, cycle, rng, toCoefficients } from './waveforms.ts';
 
-const HEADROOM = 0.25; // -12 dB
 const SMOOTH = 0.01;
 /** Sample-and-hold LFO: 64 random steps of 256 samples each, looped; the playback rate sets the step rate. */
 const SH_STEPS = 64;
@@ -151,37 +155,40 @@ export interface VoiceInfo {
   readonly layer: SynthLayer;
   readonly note: number;
   readonly filterHz: readonly number[];
+  /** The split crossfade gain the voice started with. */
+  readonly gain: number;
 }
 
-export class SynthEngine {
+export class SynthEngine implements SectionEngine<'synth'> {
+  readonly section = 'synth';
   readonly #ctx: BaseAudioContext;
   readonly #values: ValueReader;
   readonly #alloc: VoiceAllocator;
-  readonly #master: GainNode;
-  readonly #limiter: DynamicsCompressorNode;
+  /** The engine's own master when no shared output was given; null otherwise. */
+  readonly #ownMaster: MasterBus | null;
   readonly #layers: Readonly<Record<SynthLayer, LayerNodes>>;
   readonly #voices = new Map<number, Voice>();
+  /** Each sounding voice's split crossfade GainNode, by voice id. */
+  readonly #xfades = new Map<number, GainNode>();
   readonly #ctl: Controllers = { wheel: 0, pressure: 0, pedal: 0 };
   #bend = 0;
   readonly #handlers: Readonly<Record<Effect, (layer: SynthLayer | null, t: number) => void>>;
 
-  constructor(ctx: BaseAudioContext, values: ValueReader, allocator: VoiceAllocator = new VoiceAllocator()) {
+  /**
+   * With `out` the layer pans feed it (the shared MasterBus input) and the engine builds no master
+   * of its own; without it the engine owns a MasterBus to the destination, as before section 13.
+   */
+  constructor(ctx: BaseAudioContext, values: ValueReader, allocator: VoiceAllocator = new VoiceAllocator(),
+    out?: AudioNode) {
     this.#ctx = ctx;
     this.#values = values;
     this.#alloc = allocator;
-    this.#master = ctx.createGain();
-    this.#master.gain.value = HEADROOM;
-    this.#limiter = ctx.createDynamicsCompressor();
-    this.#limiter.threshold.value = -6;
-    this.#limiter.knee.value = 0;
-    this.#limiter.ratio.value = 20;
-    this.#limiter.attack.value = 0.002;
-    this.#limiter.release.value = 0.1;
-    this.#master.connect(this.#limiter).connect(ctx.destination);
+    this.#ownMaster = out === undefined ? new MasterBus(ctx) : null;
+    const dest = out ?? this.#ownMaster!.input;
     this.#layers = {
-      A: new LayerNodes(ctx, 'A', this.#master),
-      B: new LayerNodes(ctx, 'B', this.#master),
-      C: new LayerNodes(ctx, 'C', this.#master),
+      A: new LayerNodes(ctx, 'A', dest),
+      B: new LayerNodes(ctx, 'B', dest),
+      C: new LayerNodes(ctx, 'C', dest),
     };
 
     const none = (): void => undefined;
@@ -226,16 +233,27 @@ export class SynthEngine {
 
   /** The voices that sound right now, for inspection. */
   voices(): VoiceInfo[] {
-    return [...this.#voices.values()].map((v) => ({ id: v.id, layer: v.layer, note: v.note, filterHz: v.filterFrequencies }));
+    return [...this.#voices.values()].map((v) => ({
+      id: v.id, layer: v.layer, note: v.note, filterHz: v.filterFrequencies, gain: this.#xfades.get(v.id)?.gain.value ?? 1,
+    }));
   }
 
-  handle(e: PlayEvent): void {
+  /**
+   * A routed note-on plays the hits whose layer can sound, each voice at its hit's crossfade gain.
+   * A plain PlayEvent note-on (tests, console) plays every layer enabled in the active scene at 1.
+   * A note-off releases every voice of the note, on whatever layers it started.
+   */
+  handle(e: SectionEvent<SynthLayer> | PlayEvent): void {
     const t = this.#ctx.currentTime;
     switch (e.type) {
       case 'noteOn': {
-        const layers = enabledLayers(this.#values).filter((l) => silentReason(this.#values, l) === null);
-        if (layers.length === 0) return;
-        this.#run(this.#alloc.noteOn(e.note, e.velocity, layers.map((l) => voicing(this.#values, l))), t);
+        const hits: readonly LayerHit<SynthLayer>[] = 'layers' in e
+          ? e.layers
+          : enabledLayers(this.#values).map((layer) => ({ layer, gain: 1 }));
+        const playable = hits.filter((h) => silentReason(this.#values, h.layer) === null);
+        if (playable.length === 0) return;
+        const gains = new Map(playable.map((h) => [h.layer, h.gain] as const));
+        this.#run(this.#alloc.noteOn(e.note, e.velocity, playable.map((h) => voicing(this.#values, h.layer))), t, gains);
         return;
       }
       case 'noteOff':
@@ -291,11 +309,11 @@ export class SynthEngine {
     this.#voices.clear();
   }
 
+  /** Stops every voice and frees the layer nodes; a shared output (`out`) is left alone. */
   dispose(): void {
     this.panic();
     for (const l of LAYERS) this.#layers[l].dispose();
-    this.#master.disconnect();
-    this.#limiter.disconnect();
+    this.#ownMaster?.dispose();
   }
 
   #refreshLayers(): void {
@@ -309,16 +327,26 @@ export class SynthEngine {
     }
   }
 
-  #run(cmds: readonly VoiceCommand[], t: number): void {
+  /** Carry out voice commands; `gains` gives the crossfade gain of each layer a start may begin (default 1). */
+  #run(cmds: readonly VoiceCommand[], t: number, gains?: ReadonlyMap<SynthLayer, number>): void {
     for (const cmd of cmds) {
       switch (cmd.type) {
         case 'start': {
-          const v = new Voice(this.#ctx, this.#layers[cmd.layer].taps, this.#values, {
+          // The crossfade gain is set once, at note-on; a mono or legato retarget keeps it.
+          const taps = this.#layers[cmd.layer].taps;
+          const xfade = this.#ctx.createGain();
+          xfade.gain.value = gains?.get(cmd.layer) ?? 1;
+          xfade.connect(taps.bus);
+          const v = new Voice(this.#ctx, { ...taps, bus: xfade }, this.#values, {
             id: cmd.id, layer: cmd.layer, note: cmd.note, velocity: cmd.velocity, time: t,
             mode: voicing(this.#values, cmd.layer).mode,
           });
+          this.#xfades.set(cmd.id, xfade);
           v.onEnded = (id) => {
             if (this.#voices.get(id) === v) this.#voices.delete(id);
+            // A killed voice ends after its 10 ms fade: its crossfade node goes with it, not before.
+            if (this.#xfades.get(id) === xfade) this.#xfades.delete(id);
+            xfade.disconnect();
             this.#alloc.voiceEnded(id);
           };
           this.#voices.set(cmd.id, v);
@@ -338,3 +366,6 @@ export class SynthEngine {
     }
   }
 }
+
+/** The synth as a section of the shared master (plan section 13.5). */
+export const synthFactory: SectionFactory<'synth'> = (c) => new SynthEngine(c.ctx, c.values, undefined, c.out);

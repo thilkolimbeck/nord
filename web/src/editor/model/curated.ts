@@ -1,9 +1,10 @@
 /**
  * Hand-kept facts the tables do not carry, keyed by layer-free pattern: short labels of the
- * synth controls, their MVP status (plan section 3.2, from the feasibility inventory), the
+ * synth, organ, piano and program controls, their status (plan sections 3.2 and 13.2–13.4), the
  * reason a control is unverified or silent, labels the manual gives for fields without a
- * Stage 4 display table, and per-option status. Everything else is derived from the layout
- * and the display tables in descriptors.ts.
+ * Stage 4 display table, labels that depend on another field (piano timbre and variation by
+ * piano type), and per-option status. Everything else is derived from the layout and the display
+ * tables in descriptors.ts. "M p.N" is the Stage 4 manual (v1.6X).
  */
 import type { EnumOption, ParamKind } from './descriptors.ts';
 import type { ParamStatus } from './sections.ts';
@@ -18,6 +19,15 @@ export interface Curated {
   readonly options?: readonly EnumOption[];
   /** Status and reason of single values of a tabled field, by value. */
   readonly optionStatus?: Readonly<Record<number, { readonly status: ParamStatus; readonly note: string }>>;
+  /** Manual labels that depend on another field's value (piano timbre by piano type); `fallback` for other values. */
+  readonly optionsBy?: OptionSets;
+}
+
+/** Option lists chosen by the value of another field. */
+export interface OptionSets {
+  readonly dep: string;
+  readonly sets: Readonly<Record<number, readonly EnumOption[]>>;
+  readonly fallback: readonly EnumOption[];
 }
 
 const NO_TABLE = 'no Stage 4 display table: the number is the stored step';
@@ -29,14 +39,144 @@ const LAYER_NAMES: readonly EnumOption[] = [{ value: 0, label: 'A' }, { value: 1
 const LAYER_BITS: readonly EnumOption[] = [{ value: 1, label: 'A' }, { value: 2, label: 'B' }, { value: 4, label: 'C' }];
 const MASK_NOTE = 'bit order from the converter (bit 0 = A, bit 1 = B, bit 2 = C), unverified on hardware';
 
+const OFF_ON: readonly EnumOption[] = [{ value: 0, label: 'off' }, { value: 1, label: 'on' }];
+const AB_NAMES: readonly EnumOption[] = LAYER_NAMES.slice(0, 2);
+const AB_BITS: readonly EnumOption[] = LAYER_BITS.slice(0, 2);
+const AB_MASK_NOTE = 'bit order from the converter (bit 0 = A, bit 1 = B), unverified on hardware';
+const FOCUS_NOTE = 'manual p.15, 43: the layer the panel edits';
+const ROUTER = 'zones are read at the next note-on';
+const APPROX = 'the browser approximates this; no Nord sound';
+
+/** Organ layer fields of one layer (M p.18–21; plan section 13.2). Drawbars: 0–8 as on the panel. */
+function organLayer(x: 'A' | 'B'): Record<string, Curated> {
+  const drawbar = (n: number): [string, Curated] => [`organ${x}Drawbars.org_Preset_kDb${n}`, {
+    label: `drawbar ${n}`, status: 'live', kind: 'continuous', options: DRAWBAR,
+    note: 'M p.19–21: 0 silent to 8 full; the footage depends on the model' }];
+  const v = `organ${x}VibPerc.org_Preset_k`;
+  return {
+    [`organ${x}.kbZone`]: { label: 'kb zone', status: 'live', note: `M p.18, 39; ${ROUTER}` },
+    [`organ${x}.octaveShift`]: { label: 'octave', status: 'live' },
+    [`organ${x}.sustainEnable`]: { label: 'sustain', status: 'live' },
+    [`organ${x}.model`]: { label: 'model', status: 'live', note: 'M p.18–21; additive approximation of each model' },
+    [`organ${x}.presetEnable`]: { label: 'preset', status: 'stored',
+      note: 'off = Drawbar Live (M p.19, 21): the Stage 4 plays its physical drawbars; the editor always plays the stored ones' },
+    ...Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map(drawbar)),
+    [`${v}VibratoEnable`]: { label: 'vib/chorus', status: 'live' },
+    [`${v}B3PercEnable`]: { label: 'perc', status: 'live', note: 'M p.20: B3 only' },
+    [`${v}B3PercHarmonic`]: { label: '3rd', status: 'live', note: 'M p.20: on = 3rd harmonic, off = 2nd' },
+    [`${v}B3PercSpeed`]: { label: 'fast', status: 'unverified', note: 'M p.20: decay slow or fast; the decay times are a guess' },
+    [`${v}B3PercLevel`]: { label: 'soft', status: 'unverified', note: 'M p.20: volume normal or soft; the levels are a guess' },
+  };
+}
+
+/** Piano layer fields of one layer (M p.23–26; plan section 13.3). */
+function pianoLayer(x: 'A' | 'B'): Record<string, Curated> {
+  const p = `piano${x}.`;
+  return {
+    [`${p}kbZone`]: { label: 'kb zone', status: 'live', note: `M p.23, 39; ${ROUTER}` },
+    [`${p}octaveShift`]: { label: 'octave', status: 'live' },
+    [`${p}pStickEnable`]: { label: 'pitch stick', status: 'live' },
+    [`${p}sustainEnable`]: { label: 'sustain', status: 'live' },
+    [`${p}bank`]: { label: 'type', status: 'live', note: 'M p.24: piano type; synthesized approximation, no Nord samples' },
+    [`${p}nameHash`]: { label: 'model', status: 'live', kind: 'opaque',
+      note: 'M p.24: the model picks the sound family within the type; synthesized approximation, no Nord samples' },
+    [`${p}entry`]: { label: 'slot', status: 'stored', note: 'model slot; set to 1/20 when the model changes' },
+    [`${p}variation`]: { label: 'variation', status: 'unverified', optionsBy: {
+      dep: `${p}bank`, sets: { 3: CLAV_PICKUPS }, fallback: VARIATIONS },
+    note: 'M p.24: clav pickup model A–D; the field is assumed, no effect for other types' },
+    [`${p}acoustic`]: { label: 'acoustics', status: 'unverified', kind: 'mask', options: ACOUSTICS,
+      note: 'M p.25: string resonance and soft release; the bits are assumed' },
+    [`${p}pedalNoise`]: { label: 'pedal noise', status: 'unverified', note: `M p.25; ${APPROX}` },
+    [`${p}kbdTouch`]: { label: 'kb touch', status: 'unverified', note: 'M p.25: the touch curves are a guess' },
+    [`${p}dynComp`]: { label: 'dyn comp', status: 'unverified', options: OFF_1_2_3,
+      note: 'M p.25 labels off, 1, 2, 3; no display table; the ranges are a guess' },
+    [`${p}unison`]: { label: 'unison', status: 'unverified', options: OFF_1_2_3,
+      note: 'M p.26 labels off, 1, 2, 3; no display table; the detune is a guess' },
+    [`${p}eq`]: { label: 'timbre', status: 'unverified', optionsBy: {
+      dep: `${p}bank`, sets: { 2: TIMBRE_ELECTRIC, 3: TIMBRE_CLAV }, fallback: TIMBRE_ACOUSTIC },
+    note: 'M p.26 labels per piano type; the value order is a guess' },
+  };
+}
+
+const DRAWBAR: readonly EnumOption[] = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((v) => ({ value: v, label: String(v) }));
+const CLAV_PICKUPS: readonly EnumOption[] = ['A', 'B', 'C', 'D'].map((label, value) => ({ value, label }));
+const VARIATIONS: readonly EnumOption[] = ['1', '2', '3', '4'].map((label, value) => ({ value, label }));
+/** Acoustics bits (assumed): string res = 1, soft release = 2; the default 1 is string res on. */
+const ACOUSTICS: readonly EnumOption[] = [{ value: 1, label: 'string res' }, { value: 2, label: 'soft release' }];
+const labels = (names: readonly string[]): EnumOption[] => names.map((label, value) => ({ value, label }));
+/** Timbre labels of M p.26, in the order of the manual's lists (guessed value order, plan section 13.3). */
+const TIMBRE_ACOUSTIC = labels(['off', 'Soft', 'Mid', 'Bright']);
+const TIMBRE_ELECTRIC = labels(['off', 'Soft', 'Mid', 'Bright', 'Dyno 1', 'Dyno 2']);
+const TIMBRE_CLAV = labels(['off', 'Soft', 'Treble', 'Soft+Treble', 'Brilliant', 'Soft+Brilliant', 'Treble+Brilliant',
+  'Soft+Treble+Brilliant']);
+/** Master clock: the stored number is the tempo in BPM (M p.39–40). */
+const BPM: readonly EnumOption[] = Array.from({ length: 211 }, (_, i) => ({ value: 30 + i, label: `${30 + i} bpm` }));
+
 export const CURATED: Readonly<Record<string, Curated>> = {
-  // Synth section, scene I
+  // Program (M p.15, 38–45; plan section 13.4)
+  'common.layerScene': { label: 'scene', status: 'live', note: 'M p.15, 43: which layer scene plays and is edited' },
+  'common.pdlLayerSceneEnable': { label: 'scene pedal', status: 'stored', options: OFF_ON, kind: 'bool',
+    note: 'M p.60: a pedal switches the layer scene; no pedal input in the editor' },
+  'common.splitEnabled': { label: 'split', status: 'live', note: 'M p.39: off = every layer plays every key' },
+  'common.splitEnabledLow': { label: 'low', status: 'live', note: 'M p.39: split point between zones 1 and 2' },
+  'common.splitEnabledMid': { label: 'mid', status: 'live', note: 'M p.39: split point between zones 2 and 3' },
+  'common.splitEnabledHigh': { label: 'high', status: 'live', note: 'M p.39: split point between zones 3 and 4' },
+  'common.splitPosLow': { label: 'low point', status: 'live', note: 'the split note is assumed to belong to the upper zone' },
+  'common.splitPosMid': { label: 'mid point', status: 'live', note: 'the split note is assumed to belong to the upper zone' },
+  'common.splitPosHigh': { label: 'high point', status: 'live', note: 'the split note is assumed to belong to the upper zone' },
+  'common.splitWidthLow': { label: 'low xfade', status: 'unverified', note: 'M p.39: crossfade width; the curve is a guess' },
+  'common.splitWidthMid': { label: 'mid xfade', status: 'unverified', note: 'M p.39: crossfade width; the curve is a guess' },
+  'common.splitWidthHigh': { label: 'high xfade', status: 'unverified', note: 'M p.39: crossfade width; the curve is a guess' },
+  'common.transposeEnable': { label: 'transpose on', status: 'live', note: 'M p.40: affects all layers of the program' },
+  'common.transposeValue': { label: 'transpose', status: 'live', note: 'M p.40: affects all layers of the program' },
+  'common.masterClockRate': { label: 'master clock', status: 'stored', kind: 'continuous', options: BPM,
+    note: 'M p.39–40: tempo in BPM; no arpeggiator, LFO sync or delay in the editor' },
+  'common.masterClockKbdSync': { label: 'kb sync', status: 'stored', kind: 'enum',
+    options: labels(['off', 'on', 'soft']), note: 'M p.40 labels off, on, soft; no display table' },
+  'common.pdlTapEnable': { label: 'tap pedal', status: 'stored', options: OFF_ON, kind: 'bool',
+    note: 'M p.40: tap tempo from a pedal; no pedal input in the editor' },
+
+  // Organ section, scene I (M p.18–22, 53)
+  'common.sectionEnableOrg_I': { label: 'organ on', status: 'live' },
+  'organ.layerEnableOrg_I': { label: 'layers on', status: 'live', kind: 'mask', options: AB_BITS, note: AB_MASK_NOTE },
+  'organ.layerFocusOrg_I': { label: 'focus', status: 'live', kind: 'enum', options: AB_NAMES, note: FOCUS_NOTE },
+  'organ.layerLevelOrgA': { label: 'level', status: 'live' },
+  'organ.layerLevelOrgB': { label: 'level', status: 'live' },
+  'organ.orgPStickEnable': { label: 'pitch stick', status: 'live', note: 'M p.18: bends the whole organ' },
+  ...organLayer('A'),
+  ...organLayer('B'),
+  'organ.vibratoTypeB3': { label: 'b3 vib type', status: 'unverified', kind: 'enum',
+    options: labels(['V1', 'C1', 'V2', 'C2', 'V3', 'C3']), note: 'M p.19: B3 and B3 Bass scanner; value order from the converter' },
+  'organ.vibratoTypeVox': { label: 'vox vib type', status: 'unverified', kind: 'enum',
+    options: labels(['V1', 'V2', 'V3']), note: 'M p.20; value order from the converter; the depths are a guess' },
+  'organ.vibratoTypeFarfisa': { label: 'farf vib type', status: 'unverified', kind: 'enum',
+    options: labels(['V1', 'V2', 'C2', 'C3']), note: 'M p.21; value order from the converter; the depths are a guess' },
+  'organ.polyPercEnable': { label: 'poly perc', status: 'live', kind: 'bool', options: OFF_ON,
+    note: 'M p.20: percussion on every stroke, not single-triggered; no display table' },
+  'organ.effectsLeslieEnable': { label: 'rotary', status: 'live', note: 'M p.53: the organ goes through the rotary speaker' },
+  'organ.effectsLeslieSpeed': { label: 'speed', status: 'unverified', note: 'M p.53; the rotor speeds and ramps are a guess' },
+  'organ.effectsLeslieStopMode': { label: 'stop', status: 'live', note: 'M p.53: with slow, the rotors stop' },
+  'organ.leslieStopPreset': { label: 'stop pos', status: 'stored', note: 'M p.53: stop angle; not applied in the editor' },
+  'organ.effectsLeslieDrv': { label: 'drive', status: 'unverified', note: 'M p.53; the drive curve is a guess' },
+  'organ.leslieMicDistance': { label: 'mic', status: 'unverified', kind: 'bool',
+    options: [{ value: 0, label: 'normal' }, { value: 1, label: 'close' }],
+    note: 'M p.53: close mic; no display table, 0 normal and 1 close assumed' },
+  'organ.leslieRotorAngle': { label: 'rotor angle', status: 'stored', note: 'stored rotor angle; not applied in the editor' },
+  'organ.leslieHornAngle': { label: 'horn angle', status: 'stored', note: 'stored horn angle; not applied in the editor' },
+
+  // Piano section, scene I (M p.23–26)
+  'common.sectionEnablePno_I': { label: 'piano on', status: 'live' },
+  'piano.layerEnablePno_I': { label: 'layers on', status: 'live', kind: 'mask', options: AB_BITS, note: AB_MASK_NOTE },
+  'piano.layerFocusPno_I': { label: 'focus', status: 'live', kind: 'enum', options: AB_NAMES, note: FOCUS_NOTE },
+  'piano.layerLevelPnoA': { label: 'level', status: 'live' },
+  'piano.layerLevelPnoB': { label: 'level', status: 'live' },
+  ...pianoLayer('A'),
+  ...pianoLayer('B'),
+
+  // Synth section, scene I (scene II copies take their facts from these, descriptors.ts)
   'common.sectionEnableSyn_I': { label: 'synth on', status: 'live' },
   'synth.layerEnableSyn_I': { label: 'layers on', status: 'live', kind: 'mask', options: LAYER_BITS, note: MASK_NOTE },
-  'synth.layerEnableSyn_II': { label: 'layers on (scene ii)', kind: 'mask', options: LAYER_BITS, note: MASK_NOTE },
-  'synth.layerFocusSyn_I': { label: 'focus', status: 'live', kind: 'enum', options: LAYER_NAMES,
-    note: 'manual p.15, 43: the layer the panel edits' },
-  'synth.layerFocusSyn_II': { label: 'focus (scene ii)', kind: 'enum', options: LAYER_NAMES },
+  'synth.layerFocusSyn_I': { label: 'focus', status: 'live', kind: 'enum', options: LAYER_NAMES, note: FOCUS_NOTE },
   'synth.layerLevelSyn{L}': { label: 'level', status: 'live' },
   'synth.layerPanSyn{L}': { label: 'pan', status: 'unverified', note: `${NO_TABLE}; equal-power pan assumed` },
   'synth.multiLayerFlt': { label: 'filter group', status: 'stored', note: NO_SOUND },
@@ -120,7 +260,7 @@ export const CURATED: Readonly<Record<string, Curated>> = {
   'synth{L}.pStickEnable': { label: 'pitch stick', status: 'live' },
   'synth{L}.pitchStickRange': { label: 'stick range', status: 'live' },
   'synth{L}.sustainEnable': { label: 'sustain', status: 'live' },
-  'synth{L}.kbZone': { label: 'kb zone', status: 'stored', note: 'the layer plays the whole keyboard in the MVP' },
+  'synth{L}.kbZone': { label: 'kb zone', status: 'live', note: `M p.39; ${ROUTER}` },
   'synth{L}.kbdHoldEnableLayer': { label: 'kb hold', status: 'stored', note: NO_SOUND },
 
   // Arpeggiator and gate

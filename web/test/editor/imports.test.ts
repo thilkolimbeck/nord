@@ -1,7 +1,8 @@
 /**
  * Module rules of the editor (plan section 1): nothing imports ui/ or main.ts; audio/ and midi/
  * never import ui/, formats/ or each other; model/ and formats/ use no DOM or Web Audio; the model
- * reads only its generated tables and two engine modules; no Node imports and no network APIs
+ * reads only its generated tables, two engine modules and the engine's generated tables (piano
+ * names, read only); no Node imports and no network APIs
  * anywhere; the page shell has no inline script or style (strict CSP).
  */
 import assert from 'node:assert/strict';
@@ -58,7 +59,8 @@ test('dependency rules between editor modules', () => {
         assert.ok(!['ui', 'formats', from === 'audio' ? 'midi' : 'audio'].includes(to), `${f.path} imports ${target}`);
       }
       if (from === 'model') {
-        assert.ok(['model', 'generated'].includes(to) || ['../engine/layout.ts', '../engine/template.ts'].includes(target),
+        assert.ok(['model', 'generated'].includes(to)
+          || ['../engine/layout.ts', '../engine/template.ts', '../engine/generated/tables-ns4.ts'].includes(target),
           `${f.path} imports ${target}`);
       }
       if (from === 'generated') assert.fail(`${f.path} imports ${target}`);

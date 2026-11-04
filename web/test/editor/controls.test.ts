@@ -22,8 +22,18 @@ test('every synth control has a working kind; layout regions are readouts', () =
       assert.ok(d.label.length > 0, key);
     }
   }
-  for (const r of PANEL.filter((x) => x.id !== 'synth')) {
+  for (const r of PANEL.filter((x) => x.status === 'layout')) {
     for (const g of r.groups) for (const key of keysOf(g, null)) assert.equal(controlKind(descriptorOf(key)), 'readout', key);
+  }
+  // Live organ, piano and program regions: every field has a working control, except the read-only
+  // program groups and the piano model hash (drawn by its own model select).
+  for (const r of PANEL.filter((x) => x.status === 'live' && x.id !== 'synth')) {
+    for (const g of r.groups) {
+      for (const key of keysOf(g, null)) {
+        const readOnly = ['presets', 'aux-kb', 'output'].includes(g.id) || key.endsWith('.nameHash');
+        assert.equal(controlKind(descriptorOf(key)) === 'readout', readOnly, key);
+      }
+    }
   }
   assert.equal(controlKind(descriptorOf('synthASound.fltFreq')), 'fader');
   assert.equal(controlKind(descriptorOf('synthASound.fltType')), 'select');
@@ -35,7 +45,8 @@ test('every synth control has a working kind; layout regions are readouts', () =
 test('a live value shows the Stage 4 label with its unit and no markers', () => {
   const s = store();
   const d = descriptorOf('synthASound.fltFreq');
-  assert.deepEqual(valueView(d, 127, s), { text: '32 kHz', nv: false, coarse: false, stored: false, suffixes: [] });
+  assert.deepEqual(valueView(d, 127, s),
+    { text: '32 kHz', nv: false, coarse: false, stored: false, approx: false, suffixes: [] });
   assert.equal(rangeText(d, s), '14 Hz–32 kHz');
   assert.equal(descriptionText(d, 127, s), 'range 14 Hz–32 kHz');
 });

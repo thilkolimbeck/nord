@@ -3,13 +3,15 @@
  * the file (CBIN, tag, CRC, format 3.07–3.13, block chain) and every one of the 955 fields fills
  * the snapshot, not only the synth ones, so export and report keep the organ, piano, effects and
  * common settings. The file's bytes are kept as the export donor (plan section 11, decision 3).
- * The notes tell what the editor does not play or show of the file. No DOM.
+ * The notes tell what the editor plays only as an approximation, or does not play, of the file
+ * (plan section 13.6). No DOM.
  */
 import { NordFormatError } from '../../engine/errors.ts';
 import { Ns4Program } from '../../engine/program.ts';
 import { CATEGORY_NONE, TARGET_VERSION } from '../../engine/template.ts';
 import { clampValue, DESCRIPTORS } from '../model/descriptors.ts';
-import { LAYERS, NS4_KEYS, type Ns4Key } from '../model/keys.ts';
+import { NS4_KEYS, type Ns4Key } from '../model/keys.ts';
+import { activeScene, enabledLayers, sectionOn } from '../model/scene.ts';
 import type { ProgramSnapshot } from '../model/store.ts';
 import { CATEGORY_MAX } from './preset.ts';
 
@@ -38,18 +40,34 @@ function version(v: number): string {
   return (v / 100).toFixed(2);
 }
 
-/** What the editor leaves out of the file: scene II, sections and layer modes it does not play, arp, morphs, split. */
+/** The enable fields of a layer effects block and their names in the notes. */
+const FX_UNITS: ReadonlyArray<readonly [string, string]> = [['fx1Enable', 'effect 1'], ['fx2Enable', 'effect 2'],
+  ['ampEnable', 'amp'], ['cmpEnable', 'compressor'], ['dlyEnable', 'delay'], ['rvbEnable', 'reverb']];
+const FX_BLOCKS: ReadonlyArray<readonly [string, string]> = [['organFx', 'organ'], ['pianoAFx', 'piano layer a'],
+  ['pianoBFx', 'piano layer b']];
+
+/**
+ * What the editor approximates or leaves out of the file, for the active layer scene: organ and
+ * piano as approximations, synth layer modes it does not play, extern, arp, organ and piano layer
+ * effects, morphs, split.
+ */
 function describe(values: Readonly<Record<Ns4Key, number>>): string[] {
   const notes: string[] = [];
-  if (values['common.layerScene'] === 1) {
-    notes.push('scene II is the active scene in this file; the editor shows and plays scene I only');
+  const reader = { get: (key: Ns4Key) => values[key] };
+  const scene = activeScene(reader);
+  if (scene === 'II') notes.push('scene II is the active scene in this file: it plays, and the panels edit it');
+  if (sectionOn(reader, 'organ')) {
+    notes.push(`organ is on in scene ${scene}: it plays as an approximation (an additive model, no Nord sound)`);
   }
-  if (values['common.sectionEnableOrg_I'] === 1) notes.push('organ is on in scene I: not implemented, it does not sound');
-  if (values['common.sectionEnablePno_I'] === 1) notes.push('piano is on in scene I: not implemented, it does not sound');
-  if (values['common.sectionEnableSyn_I'] === 1) {
-    const mask = values['synth.layerEnableSyn_I'];
-    LAYERS.forEach((layer, i) => {
-      if ((mask & (1 << i)) === 0) return;
+  if (sectionOn(reader, 'piano')) {
+    notes.push(`piano is on in scene ${scene}: it plays as a synthesized approximation, no Nord samples`);
+  }
+  for (const [block, name] of FX_BLOCKS) {
+    const on = FX_UNITS.filter(([field]) => values[`${block}.${field}` as Ns4Key] === 1).map(([, unit]) => unit);
+    if (on.length > 0) notes.push(`${name} has layer effects on (${on.join(', ')}): not implemented, they do not sound`);
+  }
+  if (sectionOn(reader, 'synth')) {
+    for (const layer of enabledLayers(reader, 'synth')) {
       const l = layer.toLowerCase();
       if (values[`synth${layer}.mode`] === 0) notes.push(`synth layer ${l} uses samples mode: not implemented, the layer is silent`);
       else if (values[`synth${layer}Sound.oscBank`] === 3) {
@@ -57,15 +75,17 @@ function describe(values: Readonly<Record<Ns4Key, number>>): string[] {
       }
       if (values[`synth${layer}.externEnable`] === 1) notes.push(`synth layer ${l} has extern on: not implemented`);
       if (values[`synth${layer}.arpRun`] === 1) notes.push(`synth layer ${l} has the arpeggiator on: stored, no sound in the editor`);
-    });
+    }
   } else {
-    notes.push('the synth section is off in scene I: switch a layer on to hear it');
+    notes.push(`the synth section is off in scene ${scene}: switch a layer on to hear it`);
   }
   const morphs = NS4_KEYS.filter((k) => MORPH.test(k) && values[k] !== 0).length;
   if (morphs > 0) {
     notes.push(`${morphs} morph ${morphs === 1 ? 'amount is' : 'amounts are'} set: kept and shown, not played`);
   }
-  if (values['common.splitEnabled'] === 1) notes.push('split is on: the editor plays every layer across the whole keyboard');
+  if (values['common.splitEnabled'] === 1) {
+    notes.push('split is on: zones and crossfades play as approximated (the split note is assumed to belong to the upper zone)');
+  }
   return notes;
 }
 

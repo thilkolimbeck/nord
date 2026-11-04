@@ -119,9 +119,8 @@ function edit(fn: (p: Ns4Program) => void): Uint8Array {
   return p.toBytes();
 }
 
-test('notes: scene II, sections the editor does not play, layer modes, arp, morphs, split', () => {
+test('notes: approximated sections, layer modes, arp, layer effects, morphs, split (active scene)', () => {
   const bytes = edit((p) => {
-    p.set('common.layerScene', 1);
     p.set('common.sectionEnableOrg_I', 1);
     p.set('common.sectionEnablePno_I', 1);
     p.set('common.sectionEnableSyn_I', 1);
@@ -133,22 +132,39 @@ test('notes: scene II, sections the editor does not play, layer modes, arp, morp
     p.set('synthCSound.oscBank', 0);
     p.set('synthC.externEnable', 1);
     p.set('synthC.arpRun', 1);
+    p.set('organFx.rvbEnable', 1);
+    p.set('pianoBFx.dlyEnable', 1);
+    p.set('pianoBFx.ampEnable', 1);
     p.set('synthASound.fltFreq.morphWheel', 10);
     p.set('synthBSound.fltFreq.morphWheel', -10);
     p.set('common.splitEnabled', 1);
   });
   const { notes } = importNs4p('Busy.ns4p', bytes);
   const has = (re: RegExp): void => assert.ok(notes.some((n) => re.test(n)), `${re} in ${notes.join(' | ')}`);
-  has(/^scene II is the active scene/);
-  has(/^organ is on in scene I/);
-  has(/^piano is on in scene I/);
+  has(/^organ is on in scene I: it plays as an approximation/);
+  has(/^piano is on in scene I: it plays as a synthesized approximation, no Nord samples/);
+  has(/^organ has layer effects on \(reverb\): not implemented/);
+  has(/^piano layer b has layer effects on \(amp, delay\): not implemented/);
   has(/^synth layer a uses samples mode/);
   has(/^synth layer b uses the wave oscillator type/);
   has(/^synth layer c has extern on/);
   has(/^synth layer c has the arpeggiator on/);
   has(/^2 morph amounts are set/);
-  has(/^split is on/);
+  has(/^split is on: zones and crossfades play as approximated/);
   assert.ok(!notes.some((n) => /layer c uses/.test(n)), 'analog layer c needs no mode note');
+  assert.ok(!notes.some((n) => /^scene II/.test(n)), 'scene I is active');
+
+  // Scene II active: its switches decide what plays and what the notes say.
+  const second = importNs4p('Second.ns4p', edit((p) => {
+    p.set('common.layerScene', 1);
+    p.set('common.sectionEnableSyn_I', 1);
+    p.set('synth.layerEnableSyn_I', 1);
+    p.set('common.sectionEnablePno_II', 1);
+    p.set('common.sectionEnableSyn_II', 0);
+  })).notes;
+  assert.ok(second.includes('scene II is the active scene in this file: it plays, and the panels edit it'), second.join(' | '));
+  assert.ok(second.some((n) => /^piano is on in scene II/.test(n)), second.join(' | '));
+  assert.ok(second.includes('the synth section is off in scene II: switch a layer on to hear it'), second.join(' | '));
 
   const quiet = importNs4p('Init.ns4p', edit((p) => {
     p.set('common.sectionEnableSyn_I', 1);

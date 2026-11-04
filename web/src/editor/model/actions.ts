@@ -1,15 +1,20 @@
 /**
  * Edits that change more than one field, as one store batch. The follow-up fields carry the
  * origin 'derived'. File loads never run these: they keep the stored values as they are.
+ * Section and layer switches act on the active layer scene (model/scene.ts, plan section 13.4).
  */
 import { clampValue, descriptorOf, optionsFor } from './descriptors.ts';
 import { type Ns4Key, layerKey, type SynthLayer } from './keys.ts';
 import type { ValueReader } from './labels.ts';
+import { modelsOfType, pianoModel, PIANO_TYPES, pianoType } from './pianos.ts';
+import {
+  activeScene, focusedLayer, LAYER_BITS, layerMask, layerToggle, type LayerOf, type PianoLayer, type Scene,
+  sectionEntry, type SectionId,
+} from './scene.ts';
 import type { Entry, ParamStore } from './store.ts';
 
 /** The value of the layer enable mask bit of a layer (bit 0 = A, bit 1 = B, bit 2 = C). */
-export const LAYER_BIT: Readonly<Record<SynthLayer, number>> = { A: 1, B: 2, C: 4 };
-const LAYER_ENABLE: Ns4Key = 'synth.layerEnableSyn_I';
+export const LAYER_BIT: Readonly<Record<SynthLayer, number>> = LAYER_BITS;
 
 /**
  * Switch a layer's osc bank. When the current category has no label in the new bank, category and
@@ -34,8 +39,97 @@ export function setOscBank(store: ParamStore, layer: SynthLayer, value: number):
   store.setMany(entries, 'ui');
 }
 
-/** Switch one layer on or off in the scene I layer enable mask. */
-export function setLayerEnabled(store: ParamStore, layer: SynthLayer, on: boolean): void {
-  const mask = store.get(LAYER_ENABLE);
-  store.set(LAYER_ENABLE, on ? mask | LAYER_BIT[layer] : mask & ~LAYER_BIT[layer], 'ui');
+/** Switch one synth layer on or off in the active scene's layer enable mask. */
+export function setLayerEnabled(store: ParamStore, layer: SynthLayer, on: boolean): void;
+/** Switch one layer of a section on or off in the active scene's layer enable mask. */
+export function setLayerEnabled<S extends SectionId>(store: ParamStore, section: S, layer: LayerOf<S>, on: boolean): void;
+export function setLayerEnabled(store: ParamStore, a: string, b: string | boolean, c?: boolean): void {
+  const [section, layer, on] = typeof b === 'boolean'
+    ? ['synth' as SectionId, a as SynthLayer, b]
+    : [a as SectionId, b as SynthLayer, c === true];
+  const [key, value] = layerToggle(store, section, layer as never, on);
+  store.set(key, value, 'ui');
+}
+
+/**
+ * Switch a section on or off in `scene` (default: the active one). Switching it on while its
+ * layer enable mask is empty also switches on its focused layer (derived), so a section that is
+ * on is never silent; switching off the last layer stays allowed (plan section 13.4).
+ */
+export function setSectionEnabled(store: ParamStore, section: SectionId, on: boolean,
+  scene: Scene = activeScene(store)): void {
+  const entries: Entry[] = [sectionEntry(section, on, scene)];
+  if (on && layerMask(store, section, scene) === 0) {
+    const [key, value] = layerToggle(store, section, focusedLayer(store, section, scene) as never, true, scene);
+    entries.push([key, value, 'derived']);
+  }
+  store.setMany(entries, 'ui');
+}
+
+export type SplitPoint = 'Low' | 'Mid' | 'High';
+export const SPLIT_POINTS: readonly SplitPoint[] = ['Low', 'Mid', 'High'];
+
+const splitPointKey = (p: SplitPoint): Ns4Key => `common.splitEnabled${p}` as Ns4Key;
+
+/**
+ * Whether a split point plays: its own switch and `common.splitEnabled` are both on (M p.39: the
+ * SPLIT ON button turns the whole split on or off, the points keep their own switches).
+ */
+export function splitPointOn(values: ValueReader, point: SplitPoint): boolean {
+  return values.get('common.splitEnabled') !== 0 && values.get(splitPointKey(point)) !== 0;
+}
+
+/**
+ * Switch a split point on or off; `common.splitEnabled` follows as "any point on" (derived). The
+ * editor design has keys for the points only (plan section 13.4 proposal, open for the orchestrator).
+ * While split is off no point plays, so the keys show every point off (splitPointOn); switching
+ * one on then also switches the other points off (derived), so only the point the user chose
+ * plays, as after the manual's single press of SPLIT ON with one point set (p.14, 39).
+ */
+export function setSplitPoint(store: ParamStore, point: SplitPoint, on: boolean): void {
+  const master = store.get('common.splitEnabled') !== 0;
+  const entries: Entry[] = [[splitPointKey(point), on ? 1 : 0]];
+  if (on && !master) {
+    for (const p of SPLIT_POINTS) if (p !== point && store.get(splitPointKey(p)) !== 0) entries.push([splitPointKey(p), 0, 'derived']);
+  }
+  const any = on || (master && SPLIT_POINTS.some((p) => p !== point && store.get(splitPointKey(p)) !== 0));
+  entries.push(['common.splitEnabled', any ? 1 : 0, 'derived']);
+  store.setMany(entries, 'ui');
+}
+
+/** The keys of a piano layer's type, model and slot. */
+function pianoKeys(layer: PianoLayer): { bank: Ns4Key; hash: Ns4Key; entry: Ns4Key } {
+  return {
+    bank: `piano${layer}.bank` as Ns4Key, hash: `piano${layer}.nameHash` as Ns4Key, entry: `piano${layer}.entry` as Ns4Key,
+  };
+}
+
+/**
+ * Pick a piano model by name hash: writes the hash, then the model's type as the bank and slot 0
+ * (derived), as Nord Sound Manager writes a substituted piano (plan section 13.3). An unknown hash
+ * is written alone.
+ */
+export function setPianoModel(store: ParamStore, layer: PianoLayer, hash: number): void {
+  const k = pianoKeys(layer);
+  const model = pianoModel(hash);
+  const entries: Entry[] = [[k.hash, hash]];
+  if (model !== null) entries.push([k.bank, PIANO_TYPES.indexOf(model.type), 'derived'], [k.entry, 0, 'derived']);
+  store.setMany(entries, 'ui');
+}
+
+/**
+ * Switch a piano layer's type. When the stored model belongs to another type, the model becomes
+ * the first model of the new type in catalogue order and the slot 0 (derived).
+ */
+export function setPianoType(store: ParamStore, layer: PianoLayer, bank: number): void {
+  const k = pianoKeys(layer);
+  const value = clampValue(descriptorOf(k.bank), bank);
+  const type = pianoType(value);
+  const entries: Entry[] = [[k.bank, value]];
+  const model = pianoModel(store.get(k.hash));
+  if (model?.type !== type) {
+    const first = modelsOfType(type)[0];
+    if (first !== undefined) entries.push([k.hash, first.hash, 'derived'], [k.entry, 0, 'derived']);
+  }
+  store.setMany(entries, 'ui');
 }

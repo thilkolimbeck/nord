@@ -575,16 +575,17 @@ Structure only. Visual form, layout grid, marker styling and wording are for the
 | status strip | Program section's panic | live | audio status and start, MIDI status and enable, panic, approximation line |
 | display | synth OLED | live | program name (editable); last touched parameter: label, value, unit, range, status |
 | file keys | – | live | preset save, load, download, import; .ns4p import; experimental export; report |
-| program | Program (M p.38–45) | layout | layer scene, split, transpose, master clock, morph assign, preset refs, Aux KB and output bus fields |
-| organ | Organ (M p.18–22) | layout | models, drawbars, vibrato/percussion, levels |
-| piano | Piano (M p.23–26) | layout | type, model, touch, levels |
+| program | Program (M p.38–45) | live (13.4) | layer scene, section keys, split, transpose, master clock (stored); morph assign, preset refs, Aux KB and output bus fields read-only behind "show values" |
+| organ | Organ (M p.18–22) | live (13.2) | layer strip, models, drawbars, vibrato/percussion, levels, and the rotary fields as its group `rotary` |
+| piano | Piano (M p.23–26) | live (13.3) | layer strip, type, model, touch, levels |
 | synth | Synth (M p.27–37) | live | layer strip (enable A/B/C, focus, level, pan); groups osc, filter, amp, LFO, vibrato, voice, keyboard, arp |
 | extern | Extern (M p.46–47) | layout | per-layer extern fields |
 | effects | Layer Effects (M p.48–53) | layout | FX of organ, piano A/B, synth A/B/C, focus, globals |
-| rotary | Rotary (M p.53) | layout | rotary fields from `organ.*` |
 | keyboard | – | live | virtual keyboard, octave readout, computer-key legend |
 | print-out | – | live | import notes, validation errors, export result |
 | footer | – | live | approximation, AGPL, not affiliated with Clavia or Nord |
+
+Since section 13 (13.1, 13.6) the program, organ and piano regions are live and the rotary fields form the organ region's group `rotary`; there is no separate rotary region.
 
 `sections.ts` assigns every layout key to exactly one group or to `HIDDEN`; a test checks that (AC3). Layout-only regions show their stored values as read-only readouts (useful after an import) with the region marked "not implemented"; readouts are not in the tab order.
 
@@ -603,7 +604,7 @@ Structure only. Visual form, layout grid, marker styling and wording are for the
 
 ### Focus order
 
-Skip links (to synth, to keyboard) → header → status strip (start audio, enable MIDI, panic) → name and file keys → synth layer strip → oscillator → filter → amp → LFO → vibrato → voice → keyboard group → arp → keyboard region (one focusable element whose label explains the computer keys) → print-out. Computer keys play while focus is not in a text field or `<select>` and no Cmd/Ctrl/Alt is held; range inputs ignore letters, so the two coexist.
+Skip links (to program, to synth, to keyboard) → header → status strip (start audio, enable MIDI, panic) → name and file keys → program region (scene keys, section keys, split, transpose, master clock, "show values") → organ region (layer strip, drawbars, perc · vibrato, rotary, keyboard group) → piano region (layer strip, model, touch, keyboard group) → synth layer strip → oscillator → filter → amp → LFO → vibrato → voice → keyboard group → arp → keyboard region (one focusable element whose label explains the computer keys) → print-out. Section 13 added the program, organ and piano steps (13.1, 13.6). Polite live regions (`aria-live`): the display's state line, the status strip's announcements and the print-out lines. Computer keys play while focus is not in a text field or `<select>` and no Cmd/Ctrl/Alt is held; range inputs ignore letters, so the two coexist.
 
 Computer keys use `KeyboardEvent.code` (physical position), so the piano shape holds on QWERTZ, where Y and Z swap labels. The legend shows real labels via `navigator.keyboard.getLayoutMap()` where it exists (Chromium) and US letters otherwise. Fixed velocity 100.
 
@@ -718,4 +719,442 @@ Deviations from this plan:
 - `parameterReport` takes an optional `baselineName`; inside a region it lists the layer-free groups first, then all groups of layer a, b and c; fields without a control follow under "no control", in layout order. Markers: `[not verified]` (status unverified, or a value without a Stage 4 label) and `[not implemented]` (status stored or layout, or a value whose option is not implemented, such as samples mode or the Wave type).
 - `readPreset` returns the migration notes next to the snapshot; `parsePreset` is the plain variant.
 - The export confirmation is a line inside the files box (`confirm ↓` / `cancel`), not a native dialog.
-- Still open: wiring `onLoad` in `main.ts` (to stop notes on a load), the preview deployment checks of section 0, and the reviews of E5.
+- Still open: the preview deployment checks of section 0 and the reviews of E5. (`onLoad` is wired in `main.ts`: a load stops every note; the program, organ and piano work of section 13 is tracked in 13.10.)
+
+## 13. Program, organ and piano (scope extension, 2026-11-03)
+
+Scope (user, 2026-11-03): the program, organ and piano sections work end to end like the synth: controls bound to the store and audible in the browser; app preset, report and export already carry every field. Orchestrator decisions:
+
+- **Piano:** a synthesized approximation per Stage 4 piano type and family, no Nord samples; all 295 piano names selectable; labelled approximation.
+- **Organ:** additive approximations of B3, Vox, Farfisa, Pipe 1, Pipe 2 and B3 Bass with drawbars, percussion, vibrato/chorus and an approximated rotary speaker.
+- **Effects:** the organ and piano layer effects (`organFx`, `pianoAFx`, `pianoBFx`) stay "not implemented", like the synth effects.
+- **Program:** layer scene I/II (the scene selects which `*_I`/`*_II` switches and focus are edited and played); split points, xfade and every layer's `kbZone` applied to every section, the synth included; transpose; section enables. Master clock stored only; morph assignment and preset references read-only.
+
+The brief's guardrails and sections 0 and 1 still apply: plain TypeScript, no new dependency, strict CSP, the module rules of `imports.test.ts`, no Nord trade dress; `web/src/engine/**`, `web/src/main.ts`, `web/src/state.ts`, `web/vercel.json` and private files stay untouched. "M p.N" is the manual (v1.6X, Edition N), "S" the specifications page ("120 Voice Polyphony" piano, "46 Voice polyphony" synth, no organ figure; checked 2026-11-03).
+
+### 13.1 Statuses after this work, and rules that change
+
+Statuses keep their meaning (section 3.1): `live` sounds with known units, `unverified` sounds with guessed units or behaviour, `stored` is edited and exported without sound, `layout` is read-only "not implemented". The regions `program`, `organ` and `piano` become live; the rotary fields join the organ region as its group `rotary` (docs/web-design.md); extern and effects stay `layout`.
+
+Model rules B4 changes:
+
+1. `descriptors.ts` takes the status from `curated.ts` for every field placed in a live region (today only `synth`) and throws when a field of a live region has none, unless its group's status is `stored` or `layout` (master clock; preset refs, aux kb, output), which it then inherits.
+2. Scene twins: the `_II` keys stay in `HIDDEN` (no own control, no own placement). Their descriptors copy kind, options, status and note of the `_I` twin (label: the twin's label + ` · scene ii`); region and group stay null.
+3. Controls follow the scene the way they follow the focused layer: `control.rebind(key)` accepts a key whose `sceneFree(patternOf(key))` equals the current one (`model/scene.ts`). Panels rebind their scene controls when `common.layerScene` changes, and their layer controls when the active scene's focus changes.
+4. Audio: `bindingOf(key)` (synth, organ and piano tables) resolves a scene key through `sceneTwin` to its `_I` pattern; binding tables list `_I` keys only.
+
+Router-owned keys matter only at the next note-on and no engine reacts to them: `common.layerScene`, the 18 scene keys (`SCENE_KEYS`), `common.split*`, `common.transpose*` and every `*.kbZone`. Each engine's binding table still lists the router-owned keys of its own region with an effect that does nothing (apply `next-note`), as the synth already does for `common.sectionEnableSyn_I`, so the coverage tests stay one rule.
+
+Morphs (357 fields, decision 5) stay read-only in every section: stored, exported, reported, a dot on the parent control, not played.
+
+### 13.2 Organ
+
+#### Fields
+
+`{X}` is organ layer `A` or `B`. Table ids are the Stage 4 display tables in `display-ns4.ts`.
+
+| key | kind | range / labels | status | sound meaning (M) |
+| --- | --- | --- | --- | --- |
+| `common.sectionEnableOrg_{I,II}` | bool | off/on (084-5, 084-8) | live (router) | organ section on in the scene (p.18, 43) |
+| `organ.layerEnableOrg_{I,II}` | mask | A = 1, B = 2 (raw 0..3, no table) | live (router) | layers on (p.18); bit order as the converter writes it, unverified |
+| `organ.layerFocusOrg_{I,II}` | enum | A, B (raw 0..1) | live, no sound | the layer the panel edits (p.18) |
+| `organ.layerLevelOrg{X}` | continuous | volume off … 0 dB (095-7) | live | layer gain (p.18) |
+| `organ.orgPStickEnable` | bool | off/on (103-5) | live | the pitch stick bends the whole organ ±2 semitones (p.18) |
+| `organ{X}.kbZone` | enum | zone strings by split configuration (dep 113-1) | live (router) | zones the layer plays (p.18, 39) |
+| `organ{X}.octaveShift` | continuous | −6..6; ±1, ±2 labelled (113-5), ±3…6 "not decoded" | live | ±12 semitones per step (p.18) |
+| `organ{X}.sustainEnable` | bool | off/on (114-1) | live | the sustain pedal holds the layer (p.18) |
+| `organ{X}.model` | enum | B3, VOX, FARF, PIPE1, PIPE2, B3 BASS (114-2) | live | organ model (p.18–21) |
+| `organ{X}.presetEnable` | bool | off/on (114-5) | stored | off = Drawbar Live: the Stage 4 plays its physical drawbars (p.19, 21); the editor always plays the stored ones |
+| `organ{X}Drawbars.org_Preset_kDb1…9` | continuous | 0–8 (manual labels, no table) | live | drawbar n; meaning per model below (p.19–21) |
+| `organ{X}VibPerc.org_Preset_kVibratoEnable` | bool | off/on (141-1) | live | vibrato/chorus on for the layer (p.19); Vox and Farf share one state for both layers on the Stage 4 (p.20, 21), the editor uses each layer's switch |
+| `organ{X}VibPerc.org_Preset_kB3PercEnable` | bool | off/on (141-2) | live | B3 percussion (p.20); no effect on other models |
+| `organ{X}VibPerc.org_Preset_kB3PercHarmonic` | bool | off/on (141-3); on = 3rd | live | 2nd or 3rd harmonic (p.20) |
+| `organ{X}VibPerc.org_Preset_kB3PercSpeed` | bool | off/on (141-4); on = fast | unverified | decay slow or fast (p.20); times guessed |
+| `organ{X}VibPerc.org_Preset_kB3PercLevel` | bool | off/on (141-5); on = soft | unverified | volume normal or soft (p.20); levels guessed |
+| `organ.polyPercEnable` | bool | off/on (raw) | live | poly percussion: every stroke, not single-triggered (p.20) |
+| `organ.vibratoTypeB3` | enum | V1 C1 V2 C2 V3 C3 (raw 0..5; the converter's order, `mapOrganVibrato`) | unverified | scanner type of B3 and B3 Bass (p.19) |
+| `organ.vibratoTypeVox` | enum | V1 V2 V3 (raw 0..2; converter comment) | unverified | Vox vibrato (p.20) |
+| `organ.vibratoTypeFarfisa` | enum | V1 V2 C2 C3 (raw 0..3; converter comment) | unverified | Farf vibrato/chorus (p.21) |
+| `organ.effectsLeslieEnable` | bool | off/on (104-1) | live | the organ goes through the rotary speaker (p.53) |
+| `organ.effectsLeslieSpeed` | bool | slow/fast (109-4) | unverified | rotor speed (p.53); speeds and ramps guessed |
+| `organ.effectsLeslieStopMode` | bool | off/on (109-3) | live | with slow, the rotors stop (p.53) |
+| `organ.leslieStopPreset` | enum | Free, Front Center, Front Left, Front Right, Back Left, Back Right, Back Center (108-5) | stored | stop angle (p.53); not applied |
+| `organ.effectsLeslieDrv` | continuous | 0.0–10.0 (105-5) | unverified | rotary overdrive (p.53) |
+| `organ.leslieMicDistance` | bool | raw; 0 normal, 1 close (assumed) | unverified | Close Mic (p.53) |
+| `organ.leslieRotorAngle`, `organ.leslieHornAngle` | continuous | raw 0..127 | stored | stored rotor angles; not applied |
+| `organ.auxKbdControl` | – | raw 0..3 | layout | Aux KB, read-only in the program region |
+| 63 organ morphs | – | – | stored, hidden | levels, drawbars, rotary speed (decision 5) |
+| `organFx.*` (32) | – | – | layout | organ effects, not implemented |
+
+Drawbars per model (M p.19–21):
+
+| model | db1 | db2 | db3 | db4 | db5 | db6 | db7 | db8 | db9 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| B3 | 16′ | 5⅓′ | 8′ | 4′ | 2⅔′ | 2′ | 1⅗′ | 1⅓′ | 1′ |
+| PIPE1, PIPE2 | 16′ | 5⅓′ | 8′ | 4′ | 2⅔′ | 2′ | 1⅗′ | 1⅓′ | 1′ |
+| B3 BASS | 16′ | 8′ | – | – | – | – | – | – | – |
+| VOX | partial 1 | 2 | 3 | 4 | 5 | 6 | 7 | – | soft ↔ bright |
+| FARF (value ≥ 5 = on) | Bass 16 | Strings 16 | Flute 8 | Oboe 8 | Trumpet 8 | Strings 8 | Flute 4 | Strings 4 | bright 2⅔′ |
+
+- Pipe: "The pipe lengths available for both Pipe models correspond to those of the B3 model" (p.21).
+- B3 BASS: "the two traditional B3 Bass 16′ and 8′ drawbars" (p.21); that they are db1 and db2 is assumed.
+- VOX: "The seven drawbars to the left control the level of each partial"; the rightmost one "controls the mix between a filtered signal sounding soft and dark, and an unfiltered signal sounding bright" (p.20). Their footages are printed on the panel only; the engine uses 16′ 8′ 4′ 2′ 2⅔′ 1⅗′ 1′ (guess) and db8 does nothing.
+- FARF: the drawbars are register switches; "Pulling a drawbar more than half way out will activate that register", LEDs 5–8 lit = on (p.20–21), hence on = value ≥ 5. Register names from the table on p.21.
+
+#### Sound model (B1)
+
+A voice is one key on one layer. Organs ignore velocity. Gate on with a ≈ 1 ms ramp and off with ≈ 5 ms (B3, B3 Bass, Vox, Farf); Pipe 1 attack 30 ms and release 120 ms; Pipe 2 attack 60 ms with a chiff and release 200 ms. Pitch = note + 12 × octave shift; the pitch stick (organ-wide) adds up to ±200 cents. With `organ{X}.sustainEnable` the pedal holds that layer's voices.
+
+Per layer: generator → model shaping → vibrato/chorus when on → layer level → organ bus. Organ bus → rotary when `effectsLeslieEnable` is on, else straight → `out`. Both layers share the organ bus and the rotary.
+
+Drawbar level for continuous drawbars: 0 is silent, v is 10^(−3·(8 − v)/20) (3 dB per step, the Hammond convention; unverified for the Stage 4). Loudness: one note with registration 888000000 at 0 dB layer level peaks at ≈ 0.5 on the organ bus; a full registration stays ≤ 1.0 per note; chords go to the master limiter.
+
+**B3 (tonewheel model).**
+
+- Tonewheel generator: 91 sine `OscillatorNode`s, wheel n at 440·2^((n − 46)/12) Hz (wheel 1 = C1, 32.7 Hz; wheel 91 ≈ 5.92 kHz; equal temperament, the real gear ratios differ by less than a cent). Created at the first B3 or B3 Bass note, shared by both layers, kept until dispose (stopping it after an idle time is B1's choice). The pitch stick reaches all 91 `detune`s through one `ConstantSourceNode`.
+- Key m, drawbar n uses wheel m − 23 + [−12, +7, 0, +12, +19, +24, +28, +31, +36][n − 1] (the 8′ of MIDI 36 is wheel 13). Foldback: below 1 add 12, above 91 subtract 12, repeated (the B3 folds the top back; the bottom fold is an approximation). The fifths and the 1⅗′ are tempered wheels, as on the instrument, so they beat slightly against pure harmonics.
+- Per voice: nine contact `GainNode`s from the wheels into the layer's nine drawbar buses (each a `GainNode` at its drawbar level, so a drawbar move is one param change per layer). Two keys on the same wheel add in phase, as on the instrument.
+- Key click (p.20; level "Normal", since the click level is a Sound menu setting outside the program, p.58): a shared looped white-noise buffer → per voice band-pass 1.5–3 kHz with a burst 0 → 0.15 → 0 over ≈ 3 ms at key-down and ≈ 0.05 over 2 ms at key-up.
+- Preamp "body" (p.19): per layer a gentle tanh `WaveShaper` (pre-gain 1.5) and a low-shelf +3 dB at 100 Hz. Coarse.
+- Percussion (p.20), B3 only, with `kB3PercEnable`: one more contact per voice from the 2nd harmonic wheel (m − 23 + 12, the 4′) or with `kB3PercHarmonic` the 3rd (m − 23 + 19, the 2⅔′), through an envelope: peak 1.0, or 0.5 with `kB3PercLevel` (soft); exponential fall to −40 dB in 1.2 s, or 0.4 s with `kB3PercSpeed` (fast). Single-triggered: it sounds only when no key of that layer is held ("You have to release all keys to be able to play new notes with the percussion effect"); `organ.polyPercEnable` triggers it on every note. As on the original B3, percussion on mutes the layer's 1′ drawbar (db9); unverified for the Stage 4.
+- Vibrato/chorus scanner (p.19), per layer when on: a `DelayNode` centred at 1 ms, its delay swept by a 6.9 Hz sine with peak deviation V1 0.12 ms, V2 0.25 ms, V3 0.45 ms (≈ 9, 19, 34 cents). Vibrato is the wet signal only; chorus C1–C3 mixes dry and wet 1:1 at the same depths. Type from `organ.vibratoTypeB3`.
+- Not modelled: tonewheel crosstalk and leakage, the trigger point (Sound menu settings, p.58).
+
+**B3 Bass (p.21).** The same tonewheel generator: db1 = 16′ (offset −12) and db2 = 8′ (offset 0) of the key; other drawbars do nothing; 5 ms attack, no click, no percussion; the B3 scanner applies when vibrato is on.
+
+**Vox (p.20).** Per voice one `OscillatorNode` with a `PeriodicWave` on the 16′ grid: partial drawbar k at ratio r_k to the 16′ fundamental (16′ 1, 8′ 2, 4′ 4, 2′ 8, 2⅔′ 6, 1⅗′ 10, 1′ 16) adds a buzzy series (harmonic j of that footage at level_k / j, j ≤ 16); components above 0.45 × sample rate are dropped. A drawbar move rebuilds the wave of the sounding voices with `setPeriodicWave`, once per store batch. db9: per layer two parallel paths, low-pass 1.2 kHz (soft) at gain 1 − t and direct (bright) at gain t, t = db9 / 8. Vibrato V1 V2 V3: delay swept at 5.6 Hz with deviation 0.08, 0.16, 0.3 ms (guess; "The V3 setting is the one that is modeled after the original instrument", p.20).
+
+**Farf (p.20–21).** Registers on or off (value ≥ 5). Per voice one `PeriodicWave` on the 16′ grid summing the active registers at their footage (16′ 1, 8′ 2, 4′ 4, 2⅔′ 6): Bass 16 soft (odd harmonics, 1/j²); Strings bright and thin (1/j^0.7, harmonics 1–2 at 0.3); Flute nearly sine (harmonic 2 at 0.15); Oboe reedy (1/j, harmonics 2–5 × 1.5); Trumpet brassy (1/j to j = 12); the 2⅔′ voice bright (1/j^0.8). Active registers sum at equal level, scaled by 1/√(active count). Vibrato/chorus V1 V2 C2 C3: delay swept at 6.2 Hz; V1 0.1 ms, V2 0.25 ms; C2 0.2 ms and C3 0.35 ms with dry + wet (guess; "The V1, V2 and the C3 settings are the ones that are modeled after the original instrument's", p.21).
+
+**Pipe 1 and Pipe 2 (p.21).** Per voice one `OscillatorNode` per drawbar above 0 (up to nine) at the B3 footages, but pure ratios (pipes are not tonewheels), each through its drawbar gain. Pipe 1 (all-purpose flue): sine plus 10 % 2nd harmonic, attack 30 ms, release 120 ms. Pipe 2 (principal): harmonics 1/j^1.5 up to j = 8, attack 60 ms, a chiff at the start (noise band-passed at 3 × f, 30 ms, −20 dB), release 200 ms. Vibrato/chorus on a Pipe "switches to a model which is tuned with less precision" (p.21): every footage oscillator gets a fixed detune from a seeded table within ±6 cents; no modulation.
+
+**Rotary speaker (p.53, 58).** Organ bus → drive → crossover 800 Hz → horn (high band) and drum (low band) → stereo → `out`.
+
+- Drive (`effectsLeslieDrv`, label 0.0–10.0): tanh `WaveShaper` with pre-gain 1 + 0.9 × label and post-gain 1/√pre-gain; label 0 leaves the signal linear. Drive grows with the instrument level (p.53), which the pre-gain gives by itself.
+- Two virtual microphones, left and right. Horn: per microphone a `DelayNode` at 2 ms ± 0.25 ms (close mic ± 0.35 ms) and amplitude modulation depth 0.3 (close 0.45). Drum: ± 0.1 ms, depth 0.15 (close 0.2). The microphones see the rotation 90° apart: each rotor has two `OscillatorNode`s (sine, and a cosine `PeriodicWave`) started together with the same frequency automation. AM: `GainNode.gain` at 1 − depth/2 plus the rotation × depth/2.
+- Speeds (the Sound menu's "Normal" defaults, p.58; values of the classic speaker, unverified): horn 0.83 Hz slow, 6.7 Hz fast; drum 0.67 Hz slow, 5.7 Hz fast; `setTargetAtTime` with horn τ 0.3 s up and 0.4 s down, drum τ 1.5 s up and 2.0 s down. Stop mode with slow: target 0 Hz on the down ramps; the rotors stay where they stop ("Free"). `leslieStopPreset` and the stored angles are not applied.
+- Horn/drum balance 50/50 (Sound menu default, p.58). Rotary off: the organ bus goes straight to `out`.
+- Only the organ feeds the rotary. Piano and synth reach it through the Amp/EQ "To Rotary" switch (p.53), part of the layer effects (not implemented).
+
+Not modelled: swell pedal (p.21), Drawbar Live, tonewheel modes, trigger point, organ layer effects.
+
+#### Voices and changes
+
+Full polyphony (M p.19; S has no organ figure): no stealing in normal play; a guard of 128 voices (note-layers, oldest released first) bounds runaway MIDI. Cost: B3 91 shared oscillators plus about ten gains per voice; Vox and Farf one oscillator per voice; Pipe up to nine.
+
+Bindings (`audio/organ/bindings.ts`): drawbars, layer level, vibrato on and type, rotary on, speed, stop mode, drive and mic: live (10 ms smoothing; Vox and Farf waves rebuilt per batch). Model, percussion switches, poly percussion, octave shift, sustain switch: next note (a sounding voice keeps its model and pitch). Pitch stick: live. `presetEnable`, stop preset, angles: no binding (stored). Router-owned keys: no-op.
+
+### 13.3 Piano
+
+#### Fields
+
+`{X}` is piano layer `A` or `B`.
+
+| key | kind | range / labels | status | sound meaning (M) |
+| --- | --- | --- | --- | --- |
+| `common.sectionEnablePno_{I,II}` | bool | off/on (084-6, 085-1) | live (router) | piano section on in the scene (p.23, 43) |
+| `piano.layerEnablePno_{I,II}` | mask | A = 1, B = 2 (raw 0..3) | live (router) | layers on (p.23); bit order as the converter, unverified |
+| `piano.layerFocusPno_{I,II}` | enum | A, B (raw 0..1) | live, no sound | the layer the panel edits (p.23) |
+| `piano.layerLevelPno{X}` | continuous | volume off … 0 dB (230-7) | live | layer gain (p.23) |
+| `piano{X}.kbZone` | enum | zone strings (dep 243-1) | live (router) | zones (p.23, 39) |
+| `piano{X}.octaveShift` | continuous | −6..6; ±1, ±2 labelled (243-5) | live | ±12 semitones per step (p.23) |
+| `piano{X}.pStickEnable` | bool | off/on (244-1) | live | bends ±2 semitones (p.23) |
+| `piano{X}.sustainEnable` | bool | off/on (244-2) | live | sustain pedal (p.23) |
+| `piano{X}.bank` | enum | Grand, Upright, Electric, Clav, Digital, Misc (244-3) | live | piano type; its default family (p.24) |
+| `piano{X}.nameHash` | model select | the 295 names of `model/pianos.ts` (32-bit hash) | live | the model: picks the family within the type (p.24) |
+| `piano{X}.entry` | enum | slot 1/20 … 20/20 (244-6) | stored | model slot; set to 0 on a model change, as Nord Sound Manager writes it for a substituted piano (converter) |
+| `piano{X}.variation` | enum | Clav type: A, B, C, D; other types: 1–4 (raw 0..3, no table) | unverified | Clav pickup model (p.24); no effect for other types |
+| `piano{X}.acoustic` | mask | string res = 1, soft release = 2 (raw 0..3; assumed: the default 1 is string res on, as the converter assumes) | unverified | Acoustics: Soft Release, String Res (p.25) |
+| `piano{X}.pedalNoise` | bool | off/on (249-7) | unverified | pedal noise (p.25) |
+| `piano{X}.kbdTouch` | enum | heavy, med, light (249-8) | unverified | touch curve (p.25) |
+| `piano{X}.dynComp` | enum | off, 1, 2, 3 (raw; manual) | unverified | dynamic compression (p.25) |
+| `piano{X}.unison` | enum | off, 1, 2, 3 (raw; manual) | unverified | unison (p.26) |
+| `piano{X}.eq` | enum | timbre by type, below (raw 0..7) | unverified | timbre (p.26) |
+| `piano.auxKbdControl` | – | raw 0..3 | layout | Aux KB, read-only in the program region |
+| `piano.effectsSectionModePno`, `piano.fxLayerFocusPno` | – | raw | layout | effects region |
+| 6 piano morphs | – | – | stored, hidden | layer levels (decision 5) |
+| `pianoAFx.*`, `pianoBFx.*` (64) | – | – | layout | piano effects, not implemented |
+
+Timbre labels of `piano{X}.eq` (p.26) depend on the type (`piano{X}.bank`); the value order is guessed from the order of the manual's lists:
+
+| type | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Electric | off | Soft | Mid | Bright | Dyno 1 | Dyno 2 | – | – |
+| Clav | off | Soft | Treble | Soft+Treble | Brilliant | Soft+Brilliant | Treble+Brilliant | Soft+Treble+Brilliant |
+| Grand, Upright, Digital, Misc | off | Soft | Mid | Bright | – | – | – | – |
+
+The Clav values read as a 3-bit mask (1 Soft, 2 Treble, 4 Brilliant); the manual's list has exactly that order. "–": no label; stored, flat, shown as the number with "nv".
+
+#### Model catalogue (`model/pianos.ts`, phase 1)
+
+`PIANO_MODELS` lists the 295 hashes of the engine's `PIANO_NAMES` (read-only import; `imports.test.ts` now lets the model read `../engine/generated/tables-ns4.ts`). Each entry has `type`, `family`, `size` (Sml/Med/Lrg/XL from the last word, else null), `label` (runs of spaces collapsed) and `ordinal`/`count` for the 93 labels that several hashes share. No table gives a name's type: the name rules in `pianos.ts` follow p.24 (Grand: acoustic and electric grands; Electric: tine and reed pianos; Clav: clavinets and harpsichords; Digital: digital and layer pianos; Misc: the rest) and are unverified.
+
+Counts: grand 105 (grand 84, fortepiano 12, electric-grand 9), upright 75, electric 70 (tine 60, reed 10), clav 15 (clavinet 2, harpsichord 13), digital 22 (fm 9, digital-acoustic 8, digital-electric 5), misc 8 (vibraphone 2, marimba 2, Rain Piano as upright 4).
+
+`pianoFamily(bank, hash)` returns the model's family when its type equals the stored bank, else the bank's default (`DEFAULT_FAMILY`: grand, upright, tine, clavinet, fm, vibraphone), so an unknown or zero hash (the init program) still plays.
+
+Model edits (B4, `model/actions.ts`): `setPianoModel(store, layer, hash)` writes `nameHash`, then `bank` = the model's type and `entry` = 0 as derived values, in one batch. `setPianoType(store, layer, bank)` writes `bank` and, when the stored model belongs to another type, `nameHash` = the first model of the new type in catalogue order and `entry` = 0 (derived). Loads keep the stored values.
+
+#### Sound model (B2)
+
+Common to every family:
+
+- A voice is one note on one layer, at most 12 source nodes. Pitch = note + 12 × octave shift, plus the pitch stick (±200 cents) when on; A4 = 440 Hz.
+- Velocity: x = (velocity / 127)^γ with γ = 1.6 heavy, 1.2 med, 0.85 light (heavy "facilitates playing softly", p.25). Level = 10^(−R(1 − x)/20), with dynamic range R = 40, 32, 24, 16 dB for dyn comp off, 1, 2, 3 (it "reduces the dynamic range … by raising its minimum sound level", while "the dynamic range in terms of timbre remains intact", p.25): brightness always uses the uncompressed x.
+- Envelopes: exponential, as in `envelope.ts` (a time T is the time to −40 dB, τ = T / 4.6); a voice ends below −80 dB and frees itself.
+- Release (key-up without pedal, or pedal-up): damper decay T_rel. Acoustic families have no dampers from MIDI 89 (F6) up: those notes keep their natural decay. Soft release (`acoustic` & 2): acoustic families T_rel × 3.5 ("a slightly longer and less pronounced release", p.25); electric families T_rel × 0.5 ("dampened significantly"); clavinet and harpsichord ignore it (p.25).
+- The same note struck again on the same layer: the old voice fades in 30 ms, a new one starts.
+- Unison (p.26): off/1/2/3 plays the voice as two copies detuned ±4, ±8, ±16 cents and panned −0.6/+0.6 (they replace the plain copy, so the cost doubles); it counts as one voice.
+- Timbre (`eq`): per layer, filters after the voices, live. Grand/Upright/Digital/Misc set: Soft = high-shelf −6 dB @ 3 kHz + low-shelf +2 dB @ 200 Hz; Mid = low-shelf −4 dB @ 200 Hz + peaking +3 dB @ 1 kHz (Q 0.7) + high-shelf −4 dB @ 5 kHz; Bright = high-shelf +6 dB @ 3 kHz. Electric set: Soft = high-shelf −6 dB @ 2.5 kHz; Mid = peaking +5 dB @ 1.5 kHz; Bright = peaking +4 dB @ 1.5 kHz + high-shelf +4 dB @ 5 kHz; Dyno 1 = peaking +6 dB @ 2.5 kHz (Q 1.2) + high-shelf +3 dB @ 8 kHz; Dyno 2 = Dyno 1 + low-shelf +5 dB @ 120 Hz + peaking −3 dB @ 600 Hz. Clav mask: Soft = high-shelf −6 dB @ 2 kHz, Treble = high-shelf +5 dB @ 3 kHz, Brilliant = peaking +6 dB @ 5 kHz, combined. The set follows the type (bank), not the family.
+- Pedal noise (p.25; on the Stage 4 only with a Nord Triple Pedal or Single Pedal 2; the editor plays it on every sustain event): per layer with `pedalNoise` on, at pedal-down a low-passed (600 Hz) noise thump of 60 ms, at pedal-up a band-passed (2 kHz) swish of 40 ms, both at −30 dB; acoustic and electric families only.
+- String resonance (`acoustic` & 1; p.25; Med sizes in the middle range C3–C6 = MIDI 48–84, Lrg and XL on all keys, Sml and electric families not at all, p.24–25): while the pedal is down, voices also feed a per-layer send (−24 dB) into 12 feedback comb filters (`DelayNode` + `GainNode` 0.97, delays = periods of the 12 pitch classes in octave 3), low-passed at 4 kHz and mixed at −18 dB; the send fades out over 0.3 s at pedal-up. Coarse; resonance of held keys without the pedal is not modelled.
+- Loudness: one note at velocity 100, touch med, layer 0 dB peaks at ≈ 0.5 on the layer output.
+
+Family recipes (f0 = pitch frequency, m = MIDI note after octave shift; partials only below 0.45 × sample rate):
+
+| family | sources | envelope (T = time to −40 dB) | extras |
+| --- | --- | --- | --- |
+| grand | partials n = 1…10 at n·f0·√(1 + B·n²); B = 3·10⁻⁴ up to m = 48, doubling every 18 semitones above; amplitude (1/n)^(1.6 − 0.8x); partials 1–2 doubled ±0.7 cents from m = 40 (three strings) | partial n: T₁/(1 + 0.35(n − 1)), T₁ = 12 s · 2^(−(m − 21)/22); two stages: −6 dB in the first 0.3 s (τ 0.15 s), then T | hammer: noise band-passed at 2·f0 (800–5000 Hz), 15 ms, level 0.15x; T_rel 0.55 s; damper thump at key-up (noise low-passed at 300 Hz, 40 ms, −34 dB) |
+| upright | grand with B × 1.8, T₁ × 0.7, doubles ±1.5 cents (±8 cents when the name has "HonkyTonk"), low-pass 6 kHz | as grand | names with "Felt", "Mellow" or "Soft": hammer × 0.4, partial slope +0.4 (darker) |
+| fortepiano | grand with at most 8 partials, B × 2, T₁ × 0.45 | as grand | hammer band-passed at 3 kHz; T_rel 0.9 s |
+| electric-grand | grand with B × 3, T₁ × 0.5, slope +0.3 | as grand | peaking +4 dB @ 1.2 kHz (pickup); no string resonance |
+| tine | two-operator FM: carrier sine at f0, modulator sine at f0, index from I₀ = 0.5 + 2.5x² falling to 0.2·I₀ (τ 0.4 s); bell: sine at 13.6·f0, level 0.15x, τ 0.12 s | T = 4 s · 2^(−(m − 48)/24); attack 2 ms | T_rel 0.25 s; tanh bark with pre-gain 1 + 2x³ |
+| reed | `PeriodicWave` harmonics 1…8, odd 1/j, even 0.5/j; tanh shaper pre-gain 1 + 3x²; low-pass 3 kHz | T = 2.5 s · 2^(−(m − 48)/24) | T_rel 0.2 s |
+| fm | tine with I₀ = 2 + 3x², bell ratio 14, T × 0.7, no bark | as tine | the DX and JD-800 electric pianos |
+| digital-acoustic | grand with at most 6 partials, B = 0, no doubling, no hammer | as grand | low-pass 8 kHz; T_rel 0.6 s |
+| digital-electric | tine with I₀ = 1.5, no bell, T × 0.8 | as tine | – |
+| clavinet | `PeriodicWave` pulse 10 % (≤ 24 harmonics); resonant low-pass (Q 4) from 8·f0 + 4000x Hz to 2·f0 + 800 Hz (τ 0.15 s) | T = 1.8 s · 2^(−(m − 48)/24) | pickups by `variation` (unverified): A neck: low-pass 2 kHz; B bridge: high-pass 400 Hz; C both: none; D out of phase: high-pass at 2.2·f0; T_rel 0.08 s and a key-off thunk (noise low-passed at 500 Hz, 15 ms) |
+| harpsichord | `PeriodicWave` 1/j^0.8 (≤ 32 harmonics) plus a second string +3 cents; body band-pass 1.5 kHz (Q 0.7); velocity ignored (x = 0.8) | T = 3 s · 2^(−(m − 48)/24) | T_rel 0.35 s and jack noise (band-pass 3 kHz, 10 ms, −26 dB) |
+| vibraphone | partials 1, 3.98, 10.3 at 1, 0.3x, 0.08x | T₁ = 8 s · 2^(−(m − 60)/24); partials 2 and 3 at T₁/3 and T₁/8 | mallet: noise low-passed at 1.5 kHz, 8 ms, −26 dB; T_rel 0.7 s; no motor tremolo |
+| marimba | partials 1, 3.93, 9.2 at 1, 0.25x, 0.05x | T₁ = 1.2 s · 2^(−(m − 60)/24); partial 2 at T₁/4 | mallet: noise band-passed at 800 Hz, 10 ms, 0.1x; key-up ignored (no dampers) |
+
+Every number above is invented to sound plausible; none comes from Nord. The panel says so (the approximation marker and the region legend `piano · approximation (no nord samples)`).
+
+#### Voices and changes
+
+120 voices over both layers (S), stolen oldest releasing first, then oldest held (the synth allocator's order). Worst case ≈ 1,440 source nodes: above 48 sounding voices, new voices get half their partials (one constant, named by B2).
+
+Bindings (`audio/piano/bindings.ts`): layer level, timbre and string resonance (the send): live. Type, model, variation, touch, dyn comp, unison, octave shift, sustain switch: next note. Soft release: read at key-up. Pedal noise: next pedal event. Pitch stick: live. `entry`: no binding (stored). Router-owned keys: no-op.
+
+### 13.4 Program
+
+#### Fields
+
+| key | kind | range / labels | status | meaning (M) |
+| --- | --- | --- | --- | --- |
+| `common.layerScene` | enum | I, II (085-3) | live (router) | active layer scene (p.15, 43) |
+| `common.pdlLayerSceneEnable` | bool | raw | stored | layer scene pedal (p.60) |
+| `common.splitEnabled` | bool | off/on (050-1) | live (router) | split on; off = every layer plays every key (p.39) |
+| `common.splitEnabledLow`, `…Mid`, `…High` | bool | off/on (050-2, 050-3, 050-4) | live (router) | split point on (p.39) |
+| `common.splitPosLow`, `…Mid`, `…High` | enum | C2 F2 C3 F3 C4 F4 C5 F5 C6 F6 C7 (050-5, 051-1, 051-5) | live (router) | split note: MIDI 36 41 48 53 60 65 72 77 84 89 96 (C4 = 60); the split note belongs to the upper zone (assumed) |
+| `common.splitWidthLow`, `…Mid`, `…High` | enum | none, ±6, ±12 semitones (052-1, 052-3, 052-5) | unverified (router) | xfade width (p.39); the curve is guessed |
+| `common.transposeEnable` | bool | off/on (052-7) | live (router) | transpose on (p.40) |
+| `common.transposeValue` | continuous | −6…+6 semitones (052-8) | live (router) | "always affect all Layers of a program" (p.40) |
+| `common.masterClockRate` | continuous | raw 30…240 = BPM | stored | tempo (p.39–40); no sound, since arp, LFO sync and delay are not implemented |
+| `common.masterClockKbdSync` | enum | off, on, soft (raw 0..2; manual p.40) | stored | KBS |
+| `common.pdlTapEnable` | bool | raw | stored | pedal tap (p.40) |
+| `common.orgPresetPos`, `pnoPresetPos`, `synPresetPos`, `*PresetLayerCnt*` | – | raw | layout, read-only | Preset Library references (p.41); the name hashes stay hidden |
+| `common.auxKbdEnable`, `auxKbdVelCurve`, `{organ,piano,synth}.auxKbdControl` | – | raw | layout, read-only | Aux KB (p.44, 58): a second MIDI keyboard is not mapped |
+| `common.audioRoutingBus*` (7) | – | raw | layout, read-only | output routing (p.59) |
+| 357 morph fields | – | – | stored, hidden | morph assignment (p.38–39); decision 5 |
+
+`common.fxEnable`, `fxSectionFocus` and the three `effects*Global` fields stay in the effects region (`layout`).
+
+#### Layer scene
+
+- `common.layerScene` selects the scene for all that follows: the router reads the active scene's section and layer switches at every note-on; the panels show and edit the active scene's switches and focus (rebinding as in 13.1).
+- Only switches and focus exist per scene: "any specific Layer uses the same sound and settings for both Scenes, and … the Layer Scene configuration only determines whether the Layer or Section is turned On or Off" (p.43).
+- A scene change does not cut sounding notes; they end at key-up, new notes follow the new scene. The same holds for section and layer switches. Unverified (the manual promises switching "instantly and seamlessly", p.43).
+- The init program plays synth layer A in scene I; scene II keeps the layout defaults, piano layer A (`initProgram` switches off scene I only). Switching to scene II in a fresh editor therefore plays the piano.
+- Switching a section on with an empty layer mask also switches on its focused layer (B4 action, derived), so a section that is on is never silent; switching off the last layer stays allowed, as for the synth today.
+- docs/web-design.md shows split point keys but no key for `common.splitEnabled`. Proposal (B4 action, derived): a point key also sets `common.splitEnabled` to "any point on". Open for the orchestrator.
+- The point keys show what plays: a point is lit only while split is on too (`splitPointOn`), so the init program (Mid on at C4, split off) shows every point off. Switching a point on while split is off also switches the other points off (derived), so one click on `mid` in a fresh editor splits at C4 and nothing else.
+
+#### Split, zones and crossfade (router, pure)
+
+1. Split off (`common.splitEnabled` = 0) or no split point on: every enabled layer plays every key at gain 1.
+2. Boundaries are the enabled points sorted by note (ties: Low, Mid, High). Segment 0 lies below the first boundary, segment i above boundary i. Each segment has a nominal zone: segment 0 → zone 1; the segment above a point → zone 2 (Low), 3 (Mid) or 4 (High). The zone names go by rank: the k-th lowest enabled position takes the k-th enabled point in Low, Mid, High order, so zones rise with the keys even when stored positions are out of order (Low above Mid); each boundary keeps its own note and width. Whether the Stage 4 allows out-of-order positions is unknown.
+3. A layer's zones: the label of its `kbZone` value in the split-dependent table (`ns4Label`; dep tables 113-1 organ, 243-1 piano, 414-3 synth; deps = the three split enables) is four characters, character z for zone z, `1` = plays, `o` = does not (`11oo` = zones 1 and 2). Zones that a disabled point merges carry the same character in every row of those tables, so the nominal zone of step 2 reads the right one. A value without a label (the layout allows 11, the tables stop at 10) plays every zone.
+4. The layer plays the segments whose zone character is `1`. Consecutive played segments form a run. For key n the gain is the largest, over the runs, of fadeIn(n, the run's lower boundary) × fadeOut(n, its upper boundary); a missing boundary counts 1.
+   - Width w = 0: fadeIn = 1 when n ≥ b, else 0; fadeOut = 1 when n < b, else 0.
+   - w = 6 or 12: x = clamp((n − (b − w)) / (2w), 0, 1); fadeIn = sin(x·π/2), fadeOut = cos(x·π/2) (equal power, guessed). So the lower zone reaches w notes above the split and the upper zone w notes below it, as p.39 describes.
+5. Hits at or below `XFADE_FLOOR` (0.001) are dropped.
+
+Zones use the physical key; the transpose moves only the pitch (assumed).
+
+#### Transpose and octave shift
+
+Sounding note = key + (`transposeEnable` ? `transposeValue` : 0); a key whose sounding note falls outside 0..127 is not played. The router remembers key → sounding note for each held key, so its noteOff matches even after a transpose edit. Each engine applies its layers' octave shift (the synth in `pitchCents`, as today).
+
+### 13.5 Router and section interface
+
+`web/src/editor/audio/section.ts` (phase 1, frozen):
+
+```ts
+export const XFADE_FLOOR = 0.001;
+export interface LayerHit<L extends string = string> { readonly layer: L; readonly gain: number }
+export interface RoutedNoteOn<L extends string = string> {
+  readonly type: 'noteOn'; readonly key: number; readonly note: number; readonly velocity: number;
+  readonly layers: readonly LayerHit<L>[];
+}
+export interface RoutedNoteOff { readonly type: 'noteOff'; readonly key: number; readonly note: number }
+export type SectionEvent<L extends string = string> =
+  RoutedNoteOn<L> | RoutedNoteOff | Extract<PlayEvent, { type: 'sustain' | 'bend' | 'controller' }>;
+export interface SectionContext { readonly ctx: BaseAudioContext; readonly values: ValueReader; readonly out: AudioNode }
+export interface SectionEngine<S extends SectionId = SectionId> {
+  readonly section: S;
+  handle(e: SectionEvent<LayerOf<S>>): void;
+  applyChanges(batch: readonly Change[]): void;
+  panic(): void;
+  reload(): void;
+  readonly activeCount: number;
+  dispose(): void;
+}
+export type SectionFactory<S extends SectionId = SectionId> = (c: SectionContext) => SectionEngine<S>;
+export type SectionEngines = { readonly [S in SectionId]?: SectionEngine<S> };
+export interface SectionRoute<S extends SectionId = SectionId> {
+  readonly section: S; readonly layers: readonly LayerHit<LayerOf<S>>[];
+}
+export type AnySectionRoute = { [S in SectionId]: SectionRoute<S> }[SectionId];
+export interface NoteRouting { readonly key: number; readonly note: number | null; readonly routes: readonly AnySectionRoute[] }
+export type RouteNote = (values: ValueReader, key: number) => NoteRouting;
+```
+
+`SectionId`, `OrganLayer`, `PianoLayer` and `LayerOf<S>` come from `model/scene.ts` (re-exported here).
+
+Every engine:
+
+- names a note by `note` (the sounding note); a noteOff releases every voice of that note in the section, on whatever layers it started;
+- scales each new voice by its `LayerHit.gain` once, at note-on, with a per-voice `GainNode`; later split edits do not move it;
+- receives sustain, bend and controllers unchanged and applies each layer's sustain and pitch stick switches;
+- ignores keys of other sections in `applyChanges`; a batch with origin `load` or `init` makes it call its own `reload()`;
+- leaves `activeCount` at 0 when `panic()` returns; the nodes fade over ≈ 10 ms;
+- never writes the store and never imports `ui/`, `formats/` or `midi/`.
+
+`audio/router.ts` (B3) exports:
+
+```ts
+export const SPLIT_NOTES: readonly number[];   // [36, 41, 48, 53, 60, 65, 72, 77, 84, 89, 96]
+export interface SplitBoundary { readonly point: 'Low' | 'Mid' | 'High'; readonly note: number; readonly width: 0 | 6 | 12 }
+export function splitBoundaries(values: ValueReader): readonly SplitBoundary[]; // enabled points, sorted; [] when split is off
+export function zoneMask(values: ValueReader, kbZoneKey: Ns4Key): number;      // bit z−1 = zone z; no label → 0b1111
+export function zoneGain(boundaries: readonly SplitBoundary[], mask: number, key: number): number; // 13.4 steps 2–4
+export function transposeSemitones(values: ValueReader): number;
+export const routeNote: RouteNote;
+export function isRouterKey(key: Ns4Key): boolean;   // the router-owned keys of 13.1
+export class Router {
+  constructor(values: ValueReader, engines: SectionEngines);
+  handle(e: PlayEvent): void;
+  applyChanges(batch: readonly Change[]): void;
+  panic(): void;
+  reload(): void;
+  get activeCount(): number;
+  dispose(): void;
+}
+```
+
+Router behaviour:
+
+- noteOn(key, velocity): `routeNote`; with note null or no routes nothing is sent and nothing remembered. If the key is already held, its noteOff goes out first; if another held key has the same sounding note (a transpose edit in between), that key's noteOff goes out first. Then one `RoutedNoteOn` per route to its engine, and key → { note, sections } is remembered.
+- noteOff(key): a `RoutedNoteOff` with the remembered note to the remembered sections; the key is forgotten. Unknown keys: nothing.
+- sustain, bend, controller: to every engine. panic: forget all keys, `panic()` on every engine.
+- applyChanges(batch): to every engine; a load or init batch first forgets all held keys.
+- reload(): forget held keys, `reload()` on every engine. activeCount: the engines' sum. dispose: every engine's dispose.
+- No Web Audio: `router.test.ts` drives it with fake engines.
+
+#### Synth engine adaptation (B3, `audio/engine.ts`)
+
+1. `class SynthEngine implements SectionEngine<'synth'>` with `readonly section = 'synth'`.
+2. Constructor `(ctx, values, allocator = new VoiceAllocator(), out?: AudioNode)`. With `out`, the layer pans connect to it and the engine builds no master and no limiter (`dispose` leaves the shared master alone). Without `out` it keeps today's behaviour, so existing tests run unchanged. Export `synthFactory: SectionFactory<'synth'> = (c) => new SynthEngine(c.ctx, c.values, undefined, c.out)`.
+3. `handle(e)`: a `RoutedNoteOn` keeps the hits whose layer has no `silentReason`, calls `allocator.noteOn(e.note, e.velocity, hits.map((h) => voicing(values, h.layer)))`, and for each `start` command puts a per-voice `GainNode` at the hit's gain between the voice and the layer bus (`new Voice(ctx, { ...taps, bus: xfade }, …)`; disconnected in `onEnded` and on kill). A `RoutedNoteOff` calls `allocator.noteOff(e.note)`. Sustain, bend and controller as today. B3 may keep accepting a plain `PlayEvent` noteOn (every enabled layer at gain 1) for the existing tests.
+4. `mapping.ts`: `enabledLayers(values)` returns `enabledLayers(values, 'synth')` of `model/scene.ts` (active scene); `silentLayers` follows. The engine no longer reads section or layer switches at note-on: the router chose the layers.
+5. `bindings.ts`: `bindingOf` resolves scene keys through `sceneTwin`; add `synth{L}.kbZone` (router-owned, no-op, next note) because B4 makes it `live`; nothing for `common.layerScene` (program region).
+6. Master: the headroom gain and limiter move to `audio/master.ts`: `export class MasterBus { constructor(ctx: BaseAudioContext); readonly input: AudioNode; dispose(): void }` (−12 dB, the same compressor settings), one per context, shared by the three engines.
+7. A mono or legato retarget keeps the gain of the voice's first note.
+
+#### main.ts wiring (B3)
+
+```
+audio running → master = new MasterBus(ctx); c = { ctx, values: store, out: master.input }
+              → router = new Router(store, { organ: organFactory(c), piano: pianoFactory(c), synth: synthFactory(c) })
+              → gate.flush() → router.handle
+bus → merge → gate → router.handle (instead of engine.handle)
+store.onChange → router.applyChanges(batch); coarse markers and silent-layer notes as today, with the
+                 synth focus read through activeKey(store, 'synth.layerFocusSyn')
+after mountSynthPanel: const regions = panel.mountRegions((key) => display.show(key))
+dev handle __ns4Editor: router (and the synth engine for console checks)
+```
+
+`organFactory` (`audio/organ/engine.ts`) and `pianoFactory` (`audio/piano/engine.ts`) exist from phase 1 as silent stubs with these names; B1 and B2 replace the bodies.
+
+### 13.6 UI and model (B4)
+
+Visuals follow docs/web-design.md, "Editor: program, organ and piano regions". What the other builders rely on:
+
+- `PanelApi.mountRegions(onTouch: OnTouch): RegionsApi` with `RegionsApi = { controls: readonly Bound[]; dispose(): void }` (a stub since phase 1): mounts the program, organ (with rotary) and piano controls; main.ts calls it once, after the synth panel.
+- Panels read and write scene fields through `model/scene.ts` (`activeKey`, `focusedLayer`, `layerToggle`, `focusEntry`, `sectionEntry`), never through `_I` literals; `synth-panel.ts` and the synth layer toggle become scene-aware as well.
+- Placement: every `_I` scene key stays in its section's region (`common.sectionEnableSyn_I` in synth, the organ and piano ones in organ and piano), because `bindings.test.ts` requires every synth binding to name a synth-region field. The program panel's section keys are extra controls bound to those keys, not a new placement.
+- Actions (`model/actions.ts`): `setSectionEnabled(store, section, on)` (13.4), a section-aware `setLayerEnabled` (the synth calls keep working), `setPianoModel`, `setPianoType` (13.3), the split point rule of 13.4 if the orchestrator takes it.
+- Curated labels for fields without a table, all from the tables above: organ and piano layer masks (A = 1, B = 2) and focus (A, B); drawbars 0–8 (continuous with manual labels, so the value itself carries no "nv"); `organ.vibratoTypeB3`, `…Vox`, `…Farfisa`; `organ.polyPercEnable`; `organ.leslieMicDistance` (normal, close); `piano{X}.variation`; `piano{X}.acoustic` (mask: string res 1, soft release 2); `dynComp` and `unison` (off, 1, 2, 3); `piano{X}.eq` by type (labels that depend on `piano{X}.bank`: a small extension of `Curated` and `optionsFor`, B4's design, with the bank in the descriptor's `deps` so the control refreshes); `common.masterClockKbdSync` (off, on, soft); the master clock rate shown as BPM.
+- Every sound-affecting organ and piano control carries the approximation marker; region legends as the design says; "show values" stays only for read-only fields (preset refs, aux kb, output, extern, effects).
+- `formats/ns4p-import.ts` notes: organ and piano play as approximations (no Nord samples); scene II plays when active; split plays with zones and crossfade (approximated); organ or piano layer effects switched on are listed as not implemented; the synth notes stay.
+- `formats/report.ts` changes only if the region order changes. Markers follow the statuses, so `web/test/editor/fixtures/report-expected.txt` is regenerated on purpose.
+
+### 13.7 Tests
+
+Node test runner, erasable TypeScript, no DOM, no Web Audio. Engine tests use `web/test/editor/fake-audio.ts` (phase 1, shared and frozen): `FakeContext` with every node type this plan uses, connection and automation records, `advance(t)` firing `onended`, `installAudioGlobals()`. A test that needs more subclasses it in its own file.
+
+| builder | tests | must cover |
+| --- | --- | --- |
+| B1 | new `organ*.test.ts` | drawbar level curve; tonewheel index with foldback; per-model drawbars (B3 Bass db1/db2, Farf ≥ 5, Vox db9 mix); percussion single trigger vs poly, harmonic, 1′ mute; scanner depth per type; rotary speed targets and stop; on the fake: note on/off frees, panic → 0, sustain, the 128 guard, a drawbar change reaches sounding voices; coverage: every `live`/`unverified` descriptor in region organ (or rotary) has an organ binding |
+| B2 | new `piano*.test.ts` | touch curves monotonic, heavy < med < light at mid velocity; dyn comp raises the floor; timbre per type; every recipe finite for MIDI 21–108; release rules (no damper from 89, soft release, clav ignores it); unison copies; on the fake: 120-voice cap, re-strike, pedal, panic → 0; coverage as B1 for region piano |
+| B3 | new `router*.test.ts`; keeps `engine.test.ts`, `bindings.test.ts`, `mapping.test.ts`, `gate.test.ts`, `voice-alloc.test.ts` green | zone masks from the labels for every split configuration; crossfade gains at b − w, b, b + w; runs across a disabled point; split off; transpose and noteOff after a transpose edit; colliding sounding notes; scene switch while holding; routing per section with fake engines; the synth's per-voice xfade gain; coverage: every `live`/`unverified` program-region descriptor passes `isRouterKey` |
+| B4 | updates `sections`, `descriptors`, `controls`, `ns4p-import`, `report` tests and the report fixture; new `regions*.test.ts` | statuses as in 13.2–13.4; scene twins' descriptors; rebind across scenes; labels of every curated organ, piano and program field; the piano model options (295, by type); `setSectionEnabled`, `setPianoModel`, `setPianoType` |
+
+Coverage tests run one way (live descriptors ⊆ bindings), so each builder's tests pass with or without the other builders' work.
+
+Checks at the end of every task: `cd web && npm test && npm run typecheck && npm run build`; `python3 -I -m unittest discover -s tests -t .`.
+
+### 13.8 Work split
+
+Phase 1 wrote and froze `audio/section.ts`, `model/scene.ts`, `model/pianos.ts`, `web/test/editor/fake-audio.ts`, the tests `scene.test.ts`, `catalog.test.ts` and `fake-audio.test.ts`, and the engine-tables allowance in `imports.test.ts`. It also left three stubs whose bodies belong to builders: `audio/organ/engine.ts` (B1), `audio/piano/engine.ts` (B2) and `PanelApi.mountRegions` in `ui/panel.ts` (B4). A builder who needs a change to a frozen file asks the orchestrator.
+
+| builder | owns (no other builder edits these files) |
+| --- | --- |
+| B1 organ engine | `web/src/editor/audio/organ/*` (replaces the stub body of `engine.ts`, keeps `OrganEngine` and `organFactory`); `web/test/editor/organ*.test.ts` |
+| B2 piano engine | `web/src/editor/audio/piano/*` (replaces the stub body of `engine.ts`, keeps `PianoEngine` and `pianoFactory`); `web/test/editor/piano*.test.ts` |
+| B3 program, router, synth integration, audio wiring | `web/src/editor/audio/router.ts`, `audio/master.ts` (new), `audio/engine.ts`, `audio/mapping.ts`, `audio/bindings.ts`, and only if needed `audio/voice.ts`, `audio/voice-alloc.ts`, `audio/gate.ts`; `web/src/editor/main.ts`; `web/test/editor/router*.test.ts`, `engine.test.ts`, `bindings.test.ts`, `mapping.test.ts`, `gate.test.ts`, `voice-alloc.test.ts` |
+| B4 UI and model statuses | `web/src/editor/ui/*` (new `organ-panel.ts`, `piano-panel.ts`, `program-panel.ts`; `panel.ts` including the body of `mountRegions`, `synth-panel.ts`, `controls.ts`, `control-model.ts`, `display.ts`, `page.ts`), `web/src/editor/editor.css`, `model/curated.ts`, `model/sections.ts`, `model/descriptors.ts`, `model/actions.ts`, `formats/ns4p-import.ts`, `formats/report.ts` (only if needed); the tests `sections`, `descriptors`, `controls`, `ns4p-import`, `report` with `fixtures/report-expected.txt`, new `regions*.test.ts` |
+
+Nobody changes `web/src/engine/**`, `web/src/main.ts`, `web/src/state.ts`, `web/vercel.json`, `package.json` or private files. B1, B2 and B4 need only phase 1; B3 compiles against the stubs and `mountRegions`. Builders can run in any order; the orchestrator merges and runs the checks once more.
+
+### 13.9 Risks and open points
+
+- Every organ and piano timbre is invented: the tables give names and switches, not sounds. Markers and region legends say so.
+- Guessed orders and bits: organ and piano layer masks, `piano{X}.acoustic` bits, vibrato type orders (the converter's), timbre orders, Clav pickup = `variation`, Vox footages, B3 Bass drawbar positions, the split note in the upper zone, the type of each piano name.
+- CPU: 91 tonewheels, a 120-voice piano and 46 synth voices can overload phones; the levers are the piano partial budget, lazy tonewheels and the existing caps.
+- Scene and section switches while notes sound are assumed not to cut them.
+- The model select writes `bank` and `entry` with the name; if Nord Sound Manager or the Stage 4 expect other entries, an exported file may show "Piano not found" (p.24). The export stays experimental.
+- No key for `common.splitEnabled` in the design (13.4 proposal).
+- Balance between sections is set by ear; the master limiter catches overs.
+
+### 13.10 Status (2026-11-03, after the integration)
+
+The four builders' parts form one working whole; `main.ts` wires them as in 13.5 with no further interface change.
+
+- **B1 organ** (`audio/organ/*`): six models, drawbars, percussion, vibrato and chorus, rotary speaker, sustain, pitch stick, panic, the 128-voice guard; bindings for every live and unverified organ and rotary field, `organ{X}.kbZone` as a router no-op.
+- **B2 piano** (`audio/piano/*`): 13 recipe families across the six types, touch, dyn comp, unison, timbre, string resonance, soft release, pedal noise, 120 voices with stealing; `piano{X}.kbZone` as a router no-op.
+- **B3 router and wiring** (`audio/router.ts`, `audio/master.ts`, `audio/engine.ts`, `audio/mapping.ts`, `audio/bindings.ts`, `main.ts`): one `MasterBus` and one `Router` per context; the bus, panic (key, Esc, CC120/123, load, hide) and store changes reach every engine through the router. HeldNotes and the keyboard view are unchanged.
+- **B4 UI and model**: program, organ (with rotary) and piano regions bound to the store, scene- and focus-aware rebinding, the `≈` marker on sound-shaping organ and piano controls; statuses as in 13.1–13.4 (program 10 live, 3 unverified; organ 41 live, 10 unverified; piano 17 live, 14 unverified), so every coverage test of 13.7 now bites.
+- **Integration**: the dev handle `__ns4Editor` exposes `engines` (`organ`, `piano`, `synth`) next to `router` and `engine`; README "Editor" and the page's "how" and "limits" copy describe the three playable sections, no Nord samples.
+
+Checks: `npm test` 413/413, `npm run typecheck` clean, `npm run build` OK, Python suite 113 OK. Browser (vite dev, Chrome-based pane, audio running at 48 kHz): organ alone in scene I → organ `activeCount` 1; piano alone → piano 1; low split at C4 with organ A on zone 1 and synth A on the upper zones → key 48 organ only, key 72 synth only, ±6 crossfade → key 60 both; init scene I plays the synth, scene II the piano; with all three sections sounding (organ 2, piano 3, synth 2) panic and Esc leave every engine at 0; no console errors, no sideways scroll at 1280 px.
+
+Builder deviations kept (see their notes in the code): the organ router gain is the peak of each voice's gate instead of a separate gain node; tonewheels never stop once created; a sounding organ voice keeps its model; piano pedal noise only on layers on in the active scene; a key pressed again without its note off releases the earlier note first, even when the new press routes nowhere.
+
+Open for the orchestrator:
+
+- The split point keys also set `common.splitEnabled` to "any point on" (the 13.4 proposal, implemented by B4; reverting is one function in `model/actions.ts`).
+- The init program has the mid split point on at C4 with the split off; nothing stops a user from setting the low (or high) point to the same note, and then the points coincide and a layer's zones 2 and 3 meet at one note. The router handles it as specified; whether the Stage 4 allows equal positions is unknown.
+- `≈`, `⅓`, `⅔` and `⅗` fall back to a system font (not in the bundled subsets); several program and piano labels truncate at desktop width (`low po…`, `n…`).
+- Every organ and piano timbre and every "guess" of 13.2–13.4 is still unheard by ear; balance between sections is unset.

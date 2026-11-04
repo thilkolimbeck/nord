@@ -17,9 +17,14 @@ test('every layout key is in exactly one group or in HIDDEN', () => {
   assert.equal(PLACEMENT.size + HIDDEN.length, 955);
 });
 
-test('the seven Stage 4 regions exist and only synth plays', () => {
-  assert.deepEqual(PANEL.map((r) => r.id).sort(), ['effects', 'extern', 'organ', 'piano', 'program', 'rotary', 'synth']);
-  assert.deepEqual(PANEL.filter((r) => r.status === 'live').map((r) => r.id), ['synth']);
+test('six regions; program, organ, piano and synth play, the rotary is an organ group', () => {
+  assert.deepEqual(PANEL.map((r) => r.id), ['program', 'organ', 'piano', 'synth', 'extern', 'effects']);
+  assert.deepEqual(PANEL.filter((r) => r.status === 'live').map((r) => r.id), ['program', 'organ', 'piano', 'synth']);
+  assert.equal(PLACEMENT.get('organ.effectsLeslieSpeed')!.group.id, 'rotary');
+  assert.equal(PLACEMENT.get('organ.effectsLeslieSpeed')!.region.id, 'organ');
+  assert.equal(PLACEMENT.get('common.sectionEnableSyn_I')!.region.id, 'synth');
+  assert.equal(PLACEMENT.get('common.sectionEnableOrg_I')!.region.id, 'organ');
+  assert.equal(PLACEMENT.get('common.sectionEnablePno_I')!.region.id, 'piano');
   for (const region of PANEL) {
     assert.ok(region.title.length > 0 && region.groups.length > 0, region.id);
     if (region.status === 'layout') for (const g of region.groups) assert.equal(g.status, 'layout', g.id);

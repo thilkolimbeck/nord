@@ -1,4 +1,5 @@
-/* nord-convert Stage 4 editor. Design source of truth: docs/web-design.md, section "Editor (/nordconvert/editor)".
+/* nord-convert Stage 4 editor. Design source of truth: docs/web-design.md, sections "Editor (/nordconvert/editor)"
+   and "Editor: program, organ and piano regions".
    Fonts and tokens are a copy of web/src/styles.css, kept equal by test/editor/tokens.test.ts. */
 
 /* Fonts: self-hosted OFL woff2, latin subset plus a one-glyph subset for "→" (U+2192, not in
@@ -308,11 +309,6 @@ a:hover {
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
 }
 
-.row-thirds {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: start;
-}
-
 .row-halves {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
@@ -593,6 +589,148 @@ a:hover {
   min-width: 0;
 }
 
+/* Program region: one line of groups; split points side by side; compact label and value columns. */
+.program-line {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 3fr) minmax(0, 1.2fr) minmax(0, 1.2fr);
+  align-items: start;
+  gap: 10px 20px;
+}
+
+.program-line > .region-legend {
+  grid-column: 1 / -1;
+}
+
+.program-line > [data-group='split'] {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 12px;
+}
+
+.program-line > [data-group='split'] > .group-legend {
+  grid-column: 1 / -1;
+}
+
+.program-line .ctl {
+  grid-template-columns: minmax(0, 64px) minmax(0, 1fr) auto;
+}
+
+/* Program and piano labels wrap instead of truncating: the columns there are too narrow for one line. */
+.program-line .ctl-label-text,
+.region-piano .ctl-label-text {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.split-point {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.key-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Organ and piano regions: layer strip, then drawbars (organ) and the groups. */
+.organ-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.region-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.region-piano .region-groups {
+  margin-top: 12px;
+}
+
+.region-live .strip-faders {
+  flex-basis: 240px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Drawbars: nine vertical faders, 0 at the top and 8 at the bottom; value above, caption below. */
+.drawbars {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 4px;
+  max-width: 420px;
+}
+
+.drawbar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  line-height: 1.3;
+}
+
+.drawbar-value {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--panel-text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.drawbar[data-nv] .drawbar-text {
+  color: var(--accent-dim);
+}
+
+.fader.drawbar-input {
+  width: 12px;
+  height: 96px;
+  writing-mode: vertical-lr;
+}
+
+.drawbar-input::-webkit-slider-runnable-track {
+  width: 6px;
+  height: 100%;
+  background: linear-gradient(to bottom, var(--accent) var(--fill, 0%), var(--segment-off) var(--fill, 0%));
+}
+
+.drawbar-input::-webkit-slider-thumb {
+  margin-top: 0;
+  margin-left: -3px;
+}
+
+.drawbar-input::-moz-range-track {
+  width: 6px;
+  height: 100%;
+}
+
+.drawbar-input::-moz-range-progress {
+  width: 6px;
+}
+
+.drawbar-caption {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--panel-text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.drawbar-unused .drawbar-caption,
+.drawbar-unused .drawbar-text {
+  color: var(--legend-panel);
+}
+
 /* Controls: label | control | value, 11px mono. */
 .ctl {
   display: grid;
@@ -665,7 +803,17 @@ a:hover {
 
 .mask {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+}
+
+/* A mask's keys show its state; the value cell keeps only the markers. */
+.ctl-mask {
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+}
+
+.ctl-mask .ctl-text {
+  display: none;
 }
 
 /* Fader: 6px track (segment off), accent fill up to --fill (a hard stop), 12px square thumb. */
@@ -858,6 +1006,14 @@ a:hover {
   .synth-groups {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .program-line {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .program-line > [data-group='split'] {
+    grid-column: 1 / -1;
+  }
 }
 
 /* Narrow screens (< 760px): regions stack in one column; layout-only regions show legend and badge;
@@ -876,7 +1032,6 @@ a:hover {
   }
 
   .row-display,
-  .row-thirds,
   .row-halves {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -889,6 +1044,23 @@ a:hover {
 
   .synth-groups {
     gap: 14px 12px;
+  }
+
+  .program-line,
+  .program-line > [data-group='split'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .program-line .ctl {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .region-groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .drawbars {
+    max-width: none;
   }
 
   .strip-faders {

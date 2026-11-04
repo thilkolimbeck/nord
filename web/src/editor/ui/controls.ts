@@ -1,18 +1,21 @@
 /**
  * Control primitives bound to the store (docs/web-design.md, "Controls"): fader, enum select,
- * switch key, layer mask and read-only readout. Each has a visible label, the value with its unit,
- * the range and status notes in the description (aria-describedby), the status markers
- * ('nv', 'coarse', 'no sound in MVP') and a read-only morph dot. rebind(key) moves a control to the
- * same field of another layer; dispose() removes listeners and subscriptions.
+ * switch key, layer mask and read-only readout, plus the organ drawbar (a vertical fader) and the
+ * piano model select. Each has a visible label, the value with its unit, the range and status
+ * notes in the description (aria-describedby), the status markers ('nv', 'coarse', '≈',
+ * 'no sound in MVP') and a read-only morph dot. rebind(key) moves a control to the same field of
+ * another layer or scene; dispose() removes listeners and subscriptions.
  */
-import { setOscBank } from '../model/actions.ts';
+import { setPianoModel } from '../model/actions.ts';
 import { clampValue, descriptorOf, type EnumOption, optionsFor, type ParamDescriptor } from '../model/descriptors.ts';
 import { type Ns4Key, patternOf } from '../model/keys.ts';
 import type { ParamStore } from '../model/store.ts';
 import {
-  controlKind, descriptionText, isCoarse, isOffOn, morphAmounts, morphLabel, optionText, STORED_LINE, valueView,
+  APPROX_PIANO, controlKind, controlPattern, descriptionText, isCoarse, isOffOn, morphAmounts, morphLabel, optionText, sectionLayerOf,
+  shownDeps, shownValue, STORED_LINE, valueView, writeControl,
 } from './control-model.ts';
 import { h, listen, uid } from './dom.ts';
+import { MODEL_GROUPS, modelChoice } from './region-model.ts';
 
 export interface Bound {
   readonly el: HTMLElement;
@@ -25,12 +28,6 @@ export interface Bound {
 }
 
 export type OnTouch = (key: Ns4Key) => void;
-
-/** Writes that change more than one field go through the model's actions. */
-function write(store: ParamStore, d: ParamDescriptor, value: number): void {
-  if (patternOf(d.key) === 'synth{L}Sound.oscBank' && d.layer !== null) setOscBank(store, d.layer, value);
-  else store.set(d.key, value, 'ui');
-}
 
 /** The control for a field, drawn by its kind (controlKind). */
 export function control(initial: ParamDescriptor, store: ParamStore, onTouch: OnTouch): Bound {
@@ -81,7 +78,7 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
   } else if (kind === 'select') {
     const select = h('select', { class: 'enum', id: ids.input });
     offs.push(listen(select, 'change', () => {
-      write(store, d, Number(select.value));
+      writeControl(store, d, Number(select.value));
       onTouch(d.key);
     }));
     middle = h('span', { class: 'enum-wrap' }, select);
@@ -106,8 +103,8 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
     const led = h('span', { class: 'led', 'aria-hidden': 'true' });
     const key = h('button', { class: 'bool-key', type: 'button', id: ids.input }, led);
     offs.push(listen(key, 'click', () => {
-      const now = store.get(d.key);
-      store.set(d.key, now === d.max ? d.min : d.max, 'ui');
+      const now = shownValue(d, store);
+      writeControl(store, d, now === d.max ? d.min : d.max);
       onTouch(d.key);
     }));
     middle = key;
@@ -148,7 +145,7 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
   row.append(label, middle, valueCell, desc, storedLine);
 
   function refresh(): void {
-    const value = store.get(d.key);
+    const value = shownValue(d, store);
     const v = valueView(d, value, store, coarse);
     show(value);
     valueText.textContent = v.text;
@@ -165,7 +162,7 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
 
   function bind(): void {
     for (const off of subs) off();
-    const keys: Ns4Key[] = [d.key, ...d.deps, ...(d.morphs === null ? [] : [d.morphs.wheel, d.morphs.afterTouch, d.morphs.ctrlPedal])];
+    const keys: Ns4Key[] = [...watched(d), ...shownDeps(d)];
     subs = keys.map((k) => store.subscribe(k, refresh));
     row.dataset['key'] = d.key;
     refresh();
@@ -179,7 +176,7 @@ export function control(initial: ParamDescriptor, store: ParamStore, onTouch: On
     rebind(key: Ns4Key): void {
       if (key === d.key) return;
       const next = descriptorOf(key);
-      if (patternOf(next.key) !== patternOf(d.key)) throw new Error(`${key} is not a ${patternOf(d.key)} field`);
+      if (controlPattern(next.key) !== controlPattern(d.key)) throw new Error(`${key} is not a ${controlPattern(d.key)} field`);
       d = next;
       bind();
     },
@@ -208,4 +205,162 @@ export function readout(key: Ns4Key, store: ParamStore): { el: HTMLElement; refr
   };
   refresh();
   return { el, refresh };
+}
+
+/** The keys a control listens to: its own, its label dependencies and its morph amounts. */
+function watched(d: ParamDescriptor): Ns4Key[] {
+  return [d.key, ...d.deps, ...(d.morphs === null ? [] : [d.morphs.wheel, d.morphs.afterTouch, d.morphs.ctrlPedal])];
+}
+
+export interface DrawbarBound extends Bound {
+  /** Change the caption under the drawbar and its accessible name (the organ model decides them). */
+  setCaption(short: string, name: string, used: boolean): void;
+}
+
+/**
+ * An organ drawbar (docs/web-design.md, organ): the value 0–8 above, a native range input drawn
+ * vertically with 0 at the top and 8 at the bottom as on a real drawbar, the caption under it.
+ */
+export function drawbar(initial: ParamDescriptor, store: ParamStore, onTouch: OnTouch): DrawbarBound {
+  let d = initial;
+  const base = uid(`bar-${controlPattern(d.key)}`);
+  const ids = { input: `${base}-input`, caption: `${base}-caption`, desc: `${base}-desc` };
+  const valueText = h('span', { class: 'drawbar-text' });
+  const suffix = h('span', { class: 'ctl-suffix' });
+  const dot = h('span', { class: 'morph-dot', role: 'img', hidden: true });
+  const value = h('span', { class: 'drawbar-value', 'aria-hidden': 'true' }, valueText, suffix, dot);
+  const input = h('input', { class: 'fader drawbar-input', type: 'range', id: ids.input, step: 1,
+    'aria-labelledby': ids.caption, 'aria-describedby': ids.desc });
+  const captionShort = h('span', { 'aria-hidden': 'true' });
+  const captionName = h('span', { class: 'visually-hidden' });
+  const caption = h('label', { class: 'drawbar-caption', id: ids.caption, for: ids.input }, captionShort, captionName);
+  const desc = h('span', { class: 'visually-hidden', id: ids.desc });
+  const el = h('div', { class: 'drawbar', 'data-key': d.key }, value, input, caption, desc);
+  let subs: (() => void)[] = [];
+  const off = listen(input, 'input', () => {
+    store.set(d.key, Number(input.value), 'ui');
+    onTouch(d.key);
+  });
+
+  function refresh(): void {
+    const v = store.get(d.key);
+    const view = valueView(d, v, store, false);
+    input.min = String(d.min);
+    input.max = String(d.max);
+    input.value = String(v);
+    input.setAttribute('aria-valuetext', [view.text, ...view.suffixes].join(' '));
+    input.style.setProperty('--fill', `${d.max === d.min ? 0 : ((v - d.min) / (d.max - d.min)) * 100}%`);
+    valueText.textContent = view.text;
+    suffix.textContent = view.suffixes.join(' ');
+    el.toggleAttribute('data-nv', view.nv);
+    desc.textContent = descriptionText(d, v, store, false);
+    const name = morphLabel(morphAmounts(d, store, descriptorOf));
+    dot.hidden = name === null;
+    if (name === null) dot.removeAttribute('aria-label');
+    else dot.setAttribute('aria-label', name);
+  }
+
+  function bind(): void {
+    for (const u of subs) u();
+    subs = watched(d).map((k) => store.subscribe(k, refresh));
+    el.dataset['key'] = d.key;
+    refresh();
+  }
+  bind();
+
+  return {
+    el,
+    get key() { return d.key; },
+    rebind(key: Ns4Key): void {
+      if (key === d.key) return;
+      const next = descriptorOf(key);
+      if (controlPattern(next.key) !== controlPattern(d.key)) throw new Error(`${key} is not a ${controlPattern(d.key)} field`);
+      d = next;
+      bind();
+    },
+    setCoarse(): void {},
+    setCaption(short: string, name: string, used: boolean): void {
+      captionShort.textContent = short;
+      captionName.textContent = name;
+      el.classList.toggle('drawbar-unused', !used);
+    },
+    dispose(): void {
+      off();
+      for (const u of subs) u();
+      subs = [];
+      el.remove();
+    },
+  };
+}
+
+/**
+ * The piano model select (docs/web-design.md, piano): the 295 known models grouped by type, each
+ * with the suffix ' · approximation'; a stored hash the catalogue does not know gets its own first
+ * option. A choice writes the hash, the type and the slot (setPianoModel).
+ */
+export function pianoModelSelect(initial: ParamDescriptor, store: ParamStore, onTouch: OnTouch): Bound {
+  let d = initial;
+  const base = uid(`ctl-${controlPattern(d.key)}`);
+  const ids = { label: `${base}-label`, input: `${base}-input`, desc: `${base}-desc` };
+  const dot = h('span', { class: 'morph-dot', role: 'img', hidden: true });
+  const label = h('label', { class: 'ctl-label', id: ids.label, for: ids.input },
+    h('span', { class: 'ctl-label-text' }, d.label), dot);
+  const select = h('select', { class: 'enum', id: ids.input, 'aria-describedby': ids.desc });
+  const unknown = h('option', { value: '' });
+  select.append(unknown, ...MODEL_GROUPS.map((g) => h('optgroup', { label: g.label },
+    ...g.options.map((o) => h('option', { value: o.value }, o.text)))));
+  const suffix = h('span', { class: 'ctl-suffix' });
+  const valueCell = h('span', { class: 'ctl-value', 'aria-hidden': 'true' }, suffix);
+  const desc = h('span', { class: 'visually-hidden', id: ids.desc });
+  const row = h('div', { class: 'ctl ctl-select ctl-model', 'data-key': d.key },
+    label, h('span', { class: 'enum-wrap' }, select), valueCell, desc);
+  let subs: (() => void)[] = [];
+  const off = listen(select, 'change', () => {
+    if (select.value === '') return;
+    const own = sectionLayerOf(d.key);
+    if (own !== null) setPianoModel(store, own.layer, Number(select.value));
+    onTouch(d.key);
+  });
+
+  const bankKey = (): Ns4Key => d.key.replace('.nameHash', '.bank') as Ns4Key;
+  const MODEL_COUNT = MODEL_GROUPS.reduce((n, g) => n + g.options.length, 0);
+
+  function refresh(): void {
+    const hash = store.get(d.key);
+    const choice = modelChoice(hash, store.get(bankKey()));
+    unknown.hidden = choice.playsModel;
+    unknown.disabled = choice.playsModel;
+    unknown.textContent = choice.playsModel ? '' : choice.text;
+    select.value = choice.playsModel ? String(hash) : '';
+    const view = valueView(d, hash, store, false);
+    suffix.textContent = view.suffixes.filter((x) => x !== 'nv').join(' ');
+    desc.textContent = `${MODEL_COUNT} piano models, grouped by type. ${APPROX_PIANO}`;
+  }
+
+  function bind(): void {
+    for (const u of subs) u();
+    subs = [d.key, bankKey()].map((k) => store.subscribe(k, refresh));
+    row.dataset['key'] = d.key;
+    refresh();
+  }
+  bind();
+
+  return {
+    el: row,
+    get key() { return d.key; },
+    rebind(key: Ns4Key): void {
+      if (key === d.key) return;
+      const next = descriptorOf(key);
+      if (controlPattern(next.key) !== controlPattern(d.key)) throw new Error(`${key} is not a ${controlPattern(d.key)} field`);
+      d = next;
+      bind();
+    },
+    setCoarse(): void {},
+    dispose(): void {
+      off();
+      for (const u of subs) u();
+      subs = [];
+      row.remove();
+    },
+  };
 }

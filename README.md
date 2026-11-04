@@ -294,8 +294,9 @@ connect to any other host.
 
 `web/editor/` is a second page: a Stage 4 sound editor that runs entirely in
 the browser, served at `/nordconvert/editor`. It edits all 955 fields of a
-Stage 4 program and plays the synth section through Web Audio. The sound is
-an approximation, not a Stage 4: no recordings of the instrument were used.
+Stage 4 program and plays the organ, piano and synth sections through Web
+Audio. The sound is an approximation, not a Stage 4: no Nord samples and no
+recordings of the instrument were used.
 
 ```sh
 cd web
@@ -306,8 +307,9 @@ Controls:
 
 - Every control works with the keyboard and shows its value, unit and range.
   "nv" marks a value that is not verified (no Stage 4 display table, or a
-  guessed curve), "coarse" one the browser engine only approximates, "no sound
-  in MVP" one that is stored and exported but not played.
+  guessed curve), "coarse" one the browser engine only approximates, "≈" an
+  organ or piano control whose sound is an approximation, "no sound in MVP"
+  one that is stored and exported but not played.
 - Virtual keyboard: mouse, touch and pen, several notes at once; velocity
   comes from where you press the key (top soft, bottom loud).
 - Computer keyboard, by key position (so the shape holds on QWERTZ): A S D F
@@ -328,13 +330,29 @@ Browsers: a current Chrome, Edge, Firefox or Safari (desktop first; narrow
 screens stack the regions). iOS mutes Web Audio while the ringer switch is
 off.
 
-Implemented: the synth section of scene I with layers A, B and C (analog
-oscillators, FM approximated, filter, three envelopes, LFO, vibrato, voice
-modes, unison, glide, 46 voices). Not implemented, shown and stored but
-silent: organ, piano, layer effects and rotary, Nord samples and the Wave
-oscillator type (proprietary), extern, the arpeggiator's sound, morph
-editing (non-zero morphs show as a dot on their control), split zones and
-scene II.
+Implemented, all as approximations:
+
+- Program: layer scene I and II (the scene picks which section and layer
+  switches and which focus are edited and played), section switches, split
+  points with crossfade and every layer's keyboard zones (organ, piano and
+  synth), transpose. The crossfade curve and whether the split note belongs
+  to the upper zone are guesses.
+- Organ, layers A and B: additive models of B3, Vox, Farfisa, Pipe 1, Pipe 2
+  and B3 Bass with drawbars, percussion, vibrato and chorus, and an
+  approximated rotary speaker.
+- Piano, layers A and B: synthesized per Stage 4 piano type (Grand, Upright,
+  Electric, Clav, Digital, Misc), with touch, dynamic compression, unison,
+  timbre, string resonance, soft release and pedal noise approximated. All
+  295 piano names can be picked; a name only selects a sound family, no
+  Nord sample.
+- Synth, layers A, B and C: analog oscillators, FM approximated, filter,
+  three envelopes, LFO, vibrato, voice modes, unison, glide, 46 voices.
+
+Not implemented, shown and stored but silent: the layer effects of every
+section, Nord samples and the Wave oscillator type (proprietary), extern,
+the arpeggiator's sound, the master clock, morph editing (non-zero morphs
+show as a dot on their control). Preset Library references, the aux
+keyboard and output routing are read-only.
 
 Files, in the files box:
 
@@ -362,8 +380,7 @@ Files, in the files box:
 Compatibility limits: about a fifth of a Stage 4 file is not decoded, so the
 export keeps the donor's undecoded bits, which may depend on values you
 changed. Layer enable bits and scene handling come from the converter and are
-unverified on hardware. The editor plays every enabled layer across the whole
-keyboard. Plan and decisions: `docs/editor-plan.md`; what is known about the
+unverified on hardware, as are the organ and piano layer bits. Plan and decisions: `docs/editor-plan.md`; what is known about the
 Stage 4: `docs/editor-feasibility.md`.
 
 ## Licence

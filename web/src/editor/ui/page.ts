@@ -25,7 +25,7 @@ function info(id: string, title: string, ...paragraphs: (string | Node)[][]): HT
 
 export function renderPage(root: HTMLElement): PageApi {
   const skip = h('nav', { class: 'skip-links', 'aria-label': 'Skip links' },
-    link('#synth', 'skip to synth'), link('#keyboard', 'skip to keyboard'));
+    link('#program', 'skip to program'), link('#synth', 'skip to synth'), link('#keyboard', 'skip to keyboard'));
 
   const nav = h('nav', { 'aria-label': 'Pages and sections' }, h('ul', { class: 'nav' },
     h('li', null, link(CONVERTER_URL, 'converter')), h('li', null, link('#how', 'how')),
@@ -40,16 +40,22 @@ export function renderPage(root: HTMLElement): PageApi {
     info('how', 'how it works',
       ['The editor runs in your browser. Nothing is uploaded and nothing is sent to an instrument.'],
       ['Every control edits one Stage 4 field, with the Stage 4\'s own value labels, ranges and units where its '
-        + 'tables have them. The synth panel edits the focused layer: the keys a, b and c switch the focus, on/off '
-        + 'switches a layer.'],
-      ['The sound comes from the browser\'s Web Audio engine. It approximates the Stage 4 synth; it is not the '
-        + 'Stage 4 engine.']),
+        + 'tables have them. The organ, piano and synth panels edit their focused layer: the layer keys switch the '
+        + 'focus, on/off switches a layer. The program region switches the layer scene, the sections, split and '
+        + 'transpose; the panels edit the active scene.'],
+      ['The sound comes from the browser\'s Web Audio engine. It approximates the Stage 4; it is not the Stage 4 '
+        + 'engine.']),
     info('limits', 'limits',
       ['The sound is an approximation. Controls marked nv are not verified: their curve or unit is a guess. Coarse '
         + 'means the browser engine only roughly follows the setting.'],
-      ['Organ, piano, extern, layer effects, rotary and the program settings are not implemented: their values '
-        + 'are shown, stored and exported, but do not sound. The same holds for the arpeggiator, samples mode and '
-        + 'the wave oscillator type, marked no sound in MVP or not implemented.'],
+      ['Organ and piano are approximations, marked ≈: an additive organ model with an approximated rotary speaker, '
+        + 'and pianos synthesized per piano type. No Nord samples are used; the piano names only pick a sound family.'],
+      ['Extern, the layer effects, the master clock and morphs are not implemented: their values are shown, stored '
+        + 'and exported, but do not sound. The same holds for the arpeggiator, samples mode and the wave oscillator '
+        + 'type, marked no sound in MVP or not implemented. Preset references, the aux keyboard and output routing '
+        + 'are read-only.'],
+      ['Split crossfades and whether the split note belongs to the upper zone are guesses, like the organ and '
+        + 'piano layer bits.'],
       ['The Stage 4 program export is experimental and untested on hardware. Load it into a free slot.'],
       ['MIDI input needs Web MIDI, which Safari does not have. Chrome, Edge and Firefox support it.']),
     info('source', 'source',

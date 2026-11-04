@@ -9,9 +9,14 @@
  *
  * Every live and unverified synth field has a binding (bindings.test.ts); engine.ts has a handler
  * for every effect, which the type checker enforces through a Record over Effect.
+ *
+ * Router-owned keys of the synth region (section and layer switches, kbZone; plan section 13.1)
+ * are listed with effects that do nothing: the router reads them at the next note-on. The table
+ * names scene I keys only; bindingOf resolves a scene II key to its scene I twin.
  */
 import { DESCRIPTORS } from '../model/descriptors.ts';
 import { patternOf, type Ns4Key } from '../model/keys.ts';
+import { parseSceneKey, sceneKey } from '../model/scene.ts';
 import type { VoiceUpdate } from './voice.ts';
 
 export type Effect =
@@ -36,8 +41,8 @@ const ENV = (which: string): Binding => b('envTimes', 'next-stage', 'voice', `${
 
 export const BINDINGS: Readonly<Record<string, Binding>> = {
   // Section and layers
-  'common.sectionEnableSyn_I': b('layers', 'next-note', 'section', 'which layers start voices'),
-  'synth.layerEnableSyn_I': b('layers', 'next-note', 'section', 'which layers start voices'),
+  'common.sectionEnableSyn_I': b('layers', 'next-note', 'section', 'router: which layers start voices'),
+  'synth.layerEnableSyn_I': b('layers', 'next-note', 'section', 'router: which layers start voices'),
   'synth.layerFocusSyn_I': b('focus', 'none', 'section', 'none: selects the layer the panel edits'),
   'synth.layerLevelSyn{L}': b('layerBus', 'live', 'layer', 'layer bus GainNode.gain'),
   'synth.layerPanSyn{L}': b('layerBus', 'live', 'layer', 'layer StereoPannerNode.pan'),
@@ -99,11 +104,13 @@ export const BINDINGS: Readonly<Record<string, Binding>> = {
   'synth{L}.pStickEnable': b('bend', 'live', 'layer', 'bend ConstantSourceNode.offset'),
   'synth{L}.pitchStickRange': b('bend', 'live', 'layer', 'bend ConstantSourceNode.offset'),
   'synth{L}.sustainEnable': b('voicing', 'next-note', 'section', 'voice allocator sustain'),
+  'synth{L}.kbZone': b('layers', 'next-note', 'section', 'router: the keyboard zones the layer plays'),
 };
 
 /** The binding of a field, or null for fields that do not sound in the MVP. */
 export function bindingOf(key: Ns4Key): Binding | null {
-  const pattern = patternOf(key);
+  const scene = parseSceneKey(key);
+  const pattern = patternOf(scene === null ? key : sceneKey(scene.field, 'I'));
   return Object.hasOwn(BINDINGS, pattern) ? BINDINGS[pattern]! : null;
 }
 

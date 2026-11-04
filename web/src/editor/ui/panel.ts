@@ -1,17 +1,21 @@
 /**
- * The instrument panel (docs/web-design.md, "Editor"): legend row with the status strip mount,
- * row 1 display and files box, row 2 program, organ, piano, row 3 synth, row 4 extern and
- * layer effects · rotary, row 5 keyboard; the print-out attached below. The layout-only regions
- * are drawn here as read-only readouts behind a "show values" button, marked "not implemented".
- * The other regions are empty mount points other modules fill (display, synth, status, files,
- * keyboard, print-out).
+ * The instrument panel (docs/web-design.md, "Editor" and "Editor: program, organ and piano
+ * regions"): legend row with the status strip mount, row 1 display and files box, row 2 program
+ * (full width), row 3 organ and piano, row 4 synth, row 5 extern and layer effects, row 6
+ * keyboard; the print-out attached below. The layout-only regions (extern, layer effects) are
+ * drawn here as read-only readouts behind a "show values" button, marked "not implemented". The
+ * live regions are mount points: mountRegions fills program, organ and piano; other modules fill
+ * the display, synth, status, files, keyboard and print-out.
  */
 import { descriptorOf } from '../model/descriptors.ts';
 import { LAYER_TOKEN, LAYERS, type Ns4Key } from '../model/keys.ts';
 import { type Group, keysOf, PANEL, type Region, type RegionId } from '../model/sections.ts';
 import type { ParamStore } from '../model/store.ts';
-import { readout } from './controls.ts';
+import { type Bound, type OnTouch, readout } from './controls.ts';
 import { h, listen, uid } from './dom.ts';
+import { mountOrganPanel } from './organ-panel.ts';
+import { mountPianoPanel } from './piano-panel.ts';
+import { mountProgramPanel } from './program-panel.ts';
 
 export interface PanelApi {
   /** Right side of the legend row: audio and MIDI status, panic (T4, T5). */
@@ -28,6 +32,17 @@ export interface PanelApi {
   readonly keyboard: HTMLElement;
   /** The print-out under the panel. */
   readonly printout: HTMLElement;
+  /**
+   * Mount the live controls of the program, organ (with rotary) and piano regions (plan section
+   * 13.6); main.ts calls it once, after the synth panel. A second call replaces the first.
+   */
+  mountRegions(onTouch: OnTouch): RegionsApi;
+  dispose(): void;
+}
+
+/** The live controls mountRegions put on screen. */
+export interface RegionsApi {
+  readonly controls: readonly Bound[];
   dispose(): void;
 }
 
@@ -99,25 +114,29 @@ export function mountPanel(root: HTMLElement, store: ParamStore): PanelApi {
   const files = h('div', { class: 'files-body' }, h('p', { class: 'region-note' }, 'files: coming soon'));
   const filesLegend = uid('files-legend');
   const synth = h('section', { class: 'region region-synth', id: 'synth', tabindex: -1, 'aria-label': 'synth' });
+  const program = h('section', { class: 'region region-live region-program', id: 'program', tabindex: -1,
+    'aria-label': 'program' });
+  const organ = h('section', { class: 'region region-live region-organ', id: 'organ', tabindex: -1,
+    'aria-label': 'organ' });
+  const piano = h('section', { class: 'region region-live region-piano', id: 'piano', tabindex: -1,
+    'aria-label': 'piano' });
   const keyboardLegend = h('p', { class: 'region-legend', id: 'keyboard-legend' }, 'keyboard');
   const keyboard = h('div', { class: 'keyboard-slot' });
   const printout = h('div', { class: 'printout-host' });
 
   const layouts = [
-    layoutRegion('program', [region('program')], store),
-    layoutRegion('organ', [region('organ')], store),
-    layoutRegion('piano', [region('piano')], store),
     layoutRegion('extern', [region('extern')], store),
-    layoutRegion('layer effects · rotary', [region('effects'), region('rotary')], store),
+    layoutRegion('layer effects', [region('effects')], store),
   ];
-  const [program, organ, piano, extern, effects] = layouts.map((l) => l.el);
+  const [extern, effects] = layouts.map((l) => l.el);
 
   const panel = h('section', { class: 'panel', 'aria-label': 'editor panel' },
     h('div', { class: 'panel-legend' }, h('span', null, APPROXIMATION), status),
     h('div', { class: 'panel-row row-display' }, display,
       h('section', { class: 'region region-files', 'aria-labelledby': filesLegend },
         h('p', { class: 'region-legend', id: filesLegend }, 'files'), files)),
-    h('div', { class: 'panel-row row-thirds' }, program, organ, piano),
+    program,
+    h('div', { class: 'panel-row row-halves' }, organ, piano),
     synth,
     h('div', { class: 'panel-row row-halves' }, extern, effects),
     h('section', { class: 'region region-keyboard', id: 'keyboard', tabindex: -1, 'aria-labelledby': keyboardLegend.id },
@@ -125,9 +144,29 @@ export function mountPanel(root: HTMLElement, store: ParamStore): PanelApi {
   );
   root.replaceChildren(panel, printout);
 
+  let regions: RegionsApi | null = null;
+  const mountRegions = (onTouch: OnTouch): RegionsApi => {
+    regions?.dispose();
+    const parts = [
+      mountProgramPanel(program, store, onTouch),
+      mountOrganPanel(organ, store, onTouch),
+      mountPianoPanel(piano, store, onTouch),
+    ];
+    const api: RegionsApi = {
+      controls: parts.flatMap((p) => p.controls),
+      dispose(): void {
+        for (const p of parts) p.dispose();
+        if (regions === api) regions = null;
+      },
+    };
+    regions = api;
+    return api;
+  };
+
   return {
-    status, display, files, synth, keyboardLegend, keyboard, printout,
+    status, display, files, synth, keyboardLegend, keyboard, printout, mountRegions,
     dispose(): void {
+      regions?.dispose();
       for (const l of layouts) l.dispose();
       root.replaceChildren();
     },

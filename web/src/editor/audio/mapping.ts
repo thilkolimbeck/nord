@@ -6,8 +6,9 @@
  * where Infinity means the envelope holds.
  */
 import { descriptorOf, toSi } from '../model/descriptors.ts';
-import { layerKey, LAYERS, type Ns4Key, type SynthLayer } from '../model/keys.ts';
+import { layerKey, type Ns4Key, type SynthLayer } from '../model/keys.ts';
 import type { ValueReader } from '../model/labels.ts';
+import { enabledLayers as sceneEnabledLayers } from '../model/scene.ts';
 import type { LayerVoicing } from './voice-alloc.ts';
 
 // ---------------------------------------------------------------------------------------------
@@ -40,15 +41,13 @@ function expSweep(t: number, lo: number, hi: number): number {
 // ---------------------------------------------------------------------------------------------
 // Layers and voicing
 
-const SECTION_ON: Ns4Key = 'common.sectionEnableSyn_I';
-const LAYER_MASK: Ns4Key = 'synth.layerEnableSyn_I';
-const LAYER_BITS: Readonly<Record<SynthLayer, number>> = { A: 1, B: 2, C: 4 };
-
-/** The synth layers switched on in scene I (none while the synth section is off). */
+/**
+ * The synth layers switched on in the active layer scene (none while the synth section is off
+ * there). The router decides which layers play a note; this serves the silent-layer notes and
+ * plain note-ons outside the router.
+ */
 export function enabledLayers(values: ValueReader): SynthLayer[] {
-  if (values.get(SECTION_ON) === 0) return [];
-  const mask = values.get(LAYER_MASK);
-  return LAYERS.filter((l) => (mask & LAYER_BITS[l]) !== 0);
+  return sceneEnabledLayers(values, 'synth');
 }
 
 const VOICE_MODES: readonly LayerVoicing['mode'][] = ['poly', 'mono', 'legato'];

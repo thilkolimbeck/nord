@@ -7,10 +7,10 @@ baseline: the editor's init program (Stage 4 layout defaults, synth on, layer A 
 [not implemented] = the editor does not play this; the value is stored and exported as set.
 
 program · transpose
-  program transpose on/off      on [not implemented]              init off
-  program transpose amount      -2 semitones [not implemented]    init 1 semitones
+  transpose on                  on                                init off
+  transpose                     -2 semitones                      init 1 semitones
 organ · organ a
-  org preset k db1              3 [not verified] [not implemented]  init 8
+  drawbar 1                     3                                 init 8
 synth · layers
   layers on                     A+B                               init A
 synth · layer a · layers
@@ -30,7 +30,7 @@ synth · layer b · oscillator
 layer effects · layer a · synth fx
   fx reverb on/off              on [not implemented]              init off
 no control
-  synth section on/off (layer scene ii)  on [not implemented]              init off
+  synth on · scene ii           on                                init off
 no control · layer a
   freq · wheel morph            +40 [not verified] [not implemented]  init 0
 

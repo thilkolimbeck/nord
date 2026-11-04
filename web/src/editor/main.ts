@@ -1,17 +1,23 @@
 /**
  * Composition root of the Stage 4 editor (/nordconvert/editor): builds the store from the init
- * program and mounts the page, the panel, the display, the synth region and the print-out; then
- * wires play input (computer keys, virtual keyboard) through the play bus to the browser synth,
- * the audio status strip with panic (also Esc), release on blur or hide, store changes to the
- * engine, the coarse markers and the silent-layer notes; MIDI input (inputs only, after the
- * `enable midi` key) feeds the same play bus and fills the status strip's MIDI slot. Files (T6,
- * T7) arrive through the panel's mount points. DOM calls only, no inline
+ * program and mounts the page, the panel, the display, the synth region, the program, organ and
+ * piano regions and the print-out; then wires play input (computer keys, virtual keyboard) through
+ * the play bus to the note router, which plays the organ, piano and synth engines on one shared
+ * master (plan section 13.5); the audio status strip with panic (also Esc), release on blur or
+ * hide, store changes to the router, the coarse markers and the silent-layer notes; MIDI input
+ * (inputs only, after the `enable midi` key) feeds the same play bus and fills the status strip's
+ * MIDI slot. Files (T6, T7) arrive through the panel's mount points. DOM calls only, no inline
  * styles or scripts, so the page works under a strict CSP.
  */
 import { SynthEngine } from './audio/engine.ts';
 import { NoteGate } from './audio/gate.ts';
 import { AudioHost } from './audio/host.ts';
 import { coarsePatterns, silentLayers } from './audio/mapping.ts';
+import { MasterBus } from './audio/master.ts';
+import { organFactory } from './audio/organ/engine.ts';
+import { pianoFactory } from './audio/piano/engine.ts';
+import { Router } from './audio/router.ts';
+import type { SectionContext, SectionEngine } from './audio/section.ts';
 import { bindComputerKeys, ComputerKeys, keyLabels } from './input/computer-keys.ts';
 import { HeldNotes, NoteMerge, PlayBus, type PlayEvent } from './input/events.ts';
 import { bindReleaseOnHide } from './input/hide.ts';
@@ -20,7 +26,8 @@ import {
   canEnableMidi, MidiInput, type MidiNavigator, midiLed, type MidiStatus, midiStatusDescription, midiStatusText,
 } from './midi/access.ts';
 import { initProgram } from './model/init.ts';
-import { LAYERS, patternOf, type SynthLayer } from './model/keys.ts';
+import { patternOf, type SynthLayer } from './model/keys.ts';
+import { focusedLayer } from './model/scene.ts';
 import { ParamStore } from './model/store.ts';
 import { mountDisplay } from './ui/display.ts';
 import { mountFileBar } from './ui/file-bar.ts';
@@ -31,14 +38,13 @@ import { mountPrintout } from './ui/printout.ts';
 import { type MidiStatusView, mountStatusBar, setMidiStatus } from './ui/status-bar.ts';
 import { mountSynthPanel } from './ui/synth-panel.ts';
 
-const FOCUS = 'synth.layerFocusSyn_I';
-
 function start(root: HTMLElement): void {
   const store = new ParamStore(initProgram());
   const page = renderPage(root);
   const panel = mountPanel(page.instrument, store);
   const display = mountDisplay(panel.display, store);
   const synth = mountSynthPanel(panel.synth, store, (key) => display.show(key));
+  const regions = panel.mountRegions((key) => display.show(key));
   const printout = mountPrintout(panel.printout);
 
   // Audio: the context exists only after a gesture; notes wait for it in the gate. The merger in
@@ -46,7 +52,9 @@ function start(root: HTMLElement): void {
   const host = new AudioHost();
   const merge = new NoteMerge();
   const gate = new NoteGate();
-  let engine: SynthEngine | null = null;
+  // One master and one router per context: the router plays organ, piano and synth (plan 13.5).
+  let router: Router | null = null;
+  let engines: { organ: SectionEngine<'organ'>; piano: SectionEngine<'piano'>; synth: SynthEngine } | null = null;
   const bus = new PlayBus();
 
   const ensureAudio = (): void => {
@@ -58,8 +66,14 @@ function start(root: HTMLElement): void {
   host.onStatus((s) => {
     status.setAudio(s);
     if (s.kind !== 'running' || host.context === null) return;
-    engine ??= new SynthEngine(host.context, store);
-    for (const e of gate.flush()) engine.handle(e);
+    if (router === null) {
+      const master = new MasterBus(host.context);
+      const c: SectionContext = { ctx: host.context, values: store, out: master.input };
+      // new SynthEngine(…, c.out) is synthFactory(c), kept as SynthEngine for the dev handle.
+      engines = { organ: organFactory(c), piano: pianoFactory(c), synth: new SynthEngine(c.ctx, c.values, undefined, c.out) };
+      router = new Router(store, engines);
+    }
+    for (const e of gate.flush()) router.handle(e);
   });
   mountFileBar(panel.files, { store, printout, display, onLoad: panic });
 
@@ -80,8 +94,8 @@ function start(root: HTMLElement): void {
     // A MIDI note is no gesture: it tries once from idle (works after an earlier click on the page,
     // else the strip shows blocked and its start audio key); the gate drops MIDI notes until audio runs.
     if (e.type === 'noteOn' && (e.source !== 'midi' || host.status.kind === 'idle')) ensureAudio();
-    const running = host.running && engine !== null;
-    for (const m of merge.handle(e)) for (const x of gate.handle(m, running)) engine?.handle(x);
+    const running = host.running && router !== null;
+    for (const m of merge.handle(e)) for (const x of gate.handle(m, running)) router?.handle(x);
   });
   bindComputerKeys(document, keys);
   // Touch browsers grant audio only on pointerup or touchend: retry there so the next touch plays.
@@ -121,8 +135,9 @@ function start(root: HTMLElement): void {
   });
   bindReleaseOnHide(window, document, panic);
 
-  // Store → engine, coarse markers, silent-layer notes.
-  const focused = (): SynthLayer => LAYERS[store.get(FOCUS)] ?? 'A';
+  // Store → router (and through it every engine), coarse markers, silent-layer notes. The synth
+  // focus is the active scene's (model/scene.ts).
+  const focused = (): SynthLayer => focusedLayer(store, 'synth');
   const markCoarse = (): void => {
     const coarse = coarsePatterns(store, focused());
     for (const c of synth.controls) c.setCoarse(coarse.has(patternOf(c.key)));
@@ -138,7 +153,7 @@ function start(root: HTMLElement): void {
     silentText = text;
   };
   store.onChange((batch) => {
-    engine?.applyChanges(batch);
+    router?.applyChanges(batch);
     markCoarse();
     noteSilent();
   });
@@ -147,7 +162,12 @@ function start(root: HTMLElement): void {
 
   if (import.meta.env.DEV) {
     // Inspection handle for local checks in the browser console; not in production builds.
-    (globalThis as Record<string, unknown>)['__ns4Editor'] = { store, host, bus, midi, get engine() { return engine; } };
+    (globalThis as Record<string, unknown>)['__ns4Editor'] = {
+      store, host, bus, midi, regions,
+      get router() { return router; },
+      get engines() { return engines; },
+      get engine() { return engines?.synth ?? null; },
+    };
   }
 }
 
