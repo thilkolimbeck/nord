@@ -1,6 +1,8 @@
 # Nord Stage 4 editor: feasibility (Phase 1)
 
-Research for the brief `.claude/briefs/nord-stage4-editor-mvp.md`, 2026-11-03. Primary source: the official Nord Stage 4 User Manual, English, v1.6X Edition N (OS 1.6x); page numbers below are its PDF pages. Repository facts come from the decoded layout this repo already ships (`nordconv/_layout_ns4.py`, `nordconv/_tables_ns4.py`, mirrored in `web/src/engine/generated/`). Nothing here has been tested on a Stage 4.
+Research for the brief `.claude/briefs/nord-stage4-editor-mvp.md`, 2026-11-03. Primary source: the official Nord Stage 4 User Manual, English, v1.6X Edition N (OS 1.6x); page numbers below are its PDF pages. Repository facts come from the decoded layout this repo already ships (then `nordconv/_layout_ns4.py` and `nordconv/_tables_ns4.py`, now `tools/ns4data/`, mirrored in `web/src/ns4/generated/`). Nothing here has been tested on a Stage 4.
+
+> **Pivot to nord (2026-11-04).** The Stage 3 → Stage 4 converter is retired (Nord Sound Manager converts Stage 3 programs natively since v9.10) and the editor is the whole site, served at https://www.thilkolimbeck.com/nord (Vite base `/nord/`) from `web/index.html`. Paths moved: `web/editor/index.html` → `web/index.html`; `web/src/engine/` → `web/src/ns4/` (Stage 4 code only; `verify` from `convert.ts` is now `verify.ts`); `nordconv/_layout_ns4.py`, `_tables_ns4.py` and `labels.py` → `tools/ns4data/`. What this document says about the converter (its page `web/index.html`, `web/src/main.ts`, `web/src/state.ts`, `web/src/styles.css`, the `nordconv` package, `docs/phase1-mapping.md`, the `/nordconvert` URLs and the dev rewrite, `web/test/golden/golden.json`, `parity.test.ts`, `engine.test.ts`, `state.test.ts`) is historical; those files are in the git history up to commit `babed27`. The .ns4p import and export tests now read a generated corpus (`web/test/editor/corpus.ts`) instead of the converter's golden outputs, and `tokens.test.ts` checks `editor.css` alone.
 
 Status values: **verified** (an official document or the repo states it), **approximated** (buildable, but the behaviour is our own guess), **unclear** (no source settles it), **not possible** (blocked by format, protocol, rights or scope).
 
@@ -77,12 +79,12 @@ Source codes used in the tables: **M** manual v1.6X Ed. N (page), **S** specific
 
 | area | feature | status | source | limitation | alternative |
 | --- | --- | --- | --- | --- | --- |
-| d. files | `.ns4p` container: 44-byte CBIN header, CRC-32, body = u32 version + 24 length-prefixed blocks, 824 bytes | verified (decoded) | R `docs/phase1-mapping.md`, `nordconv/cbin.py`, `nordconv/program.py` | – | – |
+| d. files | `.ns4p` container: 44-byte CBIN header, CRC-32, body = u32 version + 24 length-prefixed blocks, 824 bytes | verified (decoded) | R `docs/phase1-mapping.md` (historical), `nordconv/cbin.py`, `nordconv/program.py` (now `web/src/ns4/cbin.ts`, `program.ts`) | – | – |
 | d. files | Field map: 955 fields (598 parameters, 357 morphs), all "high" confidence in the source | verified (decoded) | R `_layout_ns4.py` (opennord ed66f7f, Stage 4 OS 1.66 registry) | 621 of 6,592 body bits (9.4 %) unknown; 99 of 824 bytes hold an unknown bit (brief and README quote 16–20 % / "a fifth" from earlier byte estimates) | writer keeps unknown bits from a donor |
-| d. files | Import `.ns4p` (formats 3.07–3.13) | verified (parser) | R `Ns4Program.fromBytes`; `web/test/golden/golden.json` (584 public outputs); `templates/regressionTest.ns4p` | golden files are converter outputs, not hardware saves; formats above 3.13 refused | clear error with the version found |
+| d. files | Import `.ns4p` (formats 3.07–3.13) | verified (parser) | R `Ns4Program.fromBytes`; `web/test/golden/golden.json` (584 public outputs, historical; now the corpus of `web/test/editor/corpus.ts`); `templates/regressionTest.ns4p` | golden files were converter outputs, not hardware saves; formats above 3.13 refused | clear error with the version found |
 | d. files | Export `.ns4p` (experimental) | unclear (no hardware test) | R `Ns4Program.set`, `toBytes`, `verify()`; B | `verify()` proves re-parse, field values and untouched unknown bits, not acceptance by the instrument; 3 Nord Sound Manager conversions confirm 94 % of non-default fields (B); `verify()` expects header bank 0, location 0 | label "experimental, untested on hardware"; parameter report as fallback |
 | d. files | Export donor | approximated | R `templates/regressionTest.ns4p` (MIT), `neutralise()` | unknown bits come from the donor: neutral template or the imported file | open question 2 |
-| d. files | Program name | verified | R `docs/phase1-mapping.md` | name is the file name, not stored in the file | export file name = program name |
+| d. files | Program name | verified | R `docs/phase1-mapping.md` (historical) | name is the file name, not stored in the file | export file name = program name |
 | d. files | Transfer to the instrument | verified (Nord Sound Manager only) | M p.64; NSM | the browser cannot write to the instrument | user drops the file into Nord Sound Manager |
 | d. files | Samples `.nsmp4` (Nord Sound Manager converts `.nsmp3` and user `.nsmp`) | not possible (format undecoded) | D; NSM; M p.65 (Nord Sample Editor 4 builds samples from WAV/AIFF) | proprietary | Nord Sample Editor 4 |
 | d. files | Pianos `.npno` | not possible (format undecoded) | D | proprietary | – |
@@ -120,7 +122,7 @@ Web platform:
 - W2: https://developer.mozilla.org/en-US/docs/Web/API/Web_MIDI_API
 - W3: https://developer.chrome.com/blog/web-midi-permission-prompt
 
-Repository: `nordconv/_layout_ns4.py`, `nordconv/_tables_ns4.py` (generated from opennord ed66f7f), `nordconv/program.py`, `nordconv/map_engines.py`, `web/src/engine/convert.ts` (`verify`), `web/src/engine/index.ts`, `web/vercel.json`, `README.md`, `docs/phase1-mapping.md`, `NOTICE`.
+Repository (at the time; see the pivot note above): `nordconv/_layout_ns4.py`, `nordconv/_tables_ns4.py` (generated from opennord ed66f7f; now `tools/ns4data/`), `nordconv/program.py`, `nordconv/map_engines.py`, `web/src/engine/convert.ts` (`verify`; now `web/src/ns4/verify.ts`), `web/src/engine/index.ts` (now `web/src/ns4/index.ts`), `web/vercel.json`, `README.md`, `docs/phase1-mapping.md`, `NOTICE`.
 
 Not used: norduserforum.com (behind a Cloudflare bot check, not accessed). No licence or EULA text for Nord sounds was found on nordkeyboards.com. No forum claim is relied on.
 
@@ -453,7 +455,7 @@ Synth fields without any documented controller: `oscEnvAmt`, `fltEnable`, `lfoCl
 6. **Morph semantics.** Whether a morph amount is a delta in raw steps and how it scales; whether the layout's extra morphs (osc/filter env amount, arp range, Mod 2 rate) are reachable on the panel.
 7. **Export acceptance.** No hardware test yet; `verify()` checks structure only. Settled by loading an exported file through Nord Sound Manager into a free slot (the pending hardware test).
 8. **Asset licences.** No published licence for Nord samples, pianos, factory programs or presets. Settled by Clavia support. The MVP does not depend on it.
-9. **Deployment details.** `web/vercel.json` rewrites `/nordconvert/:path*` to `/:path*`; serving `editor.html` at `/nordconvert/editor` may need a rewrite entry, and the portfolio proxy's matcher and headers (CSP, Permissions-Policy) were not checked. Changes to `vercel.json` headers, the proxy or the portfolio are ask-first.
+9. **Deployment details** (historical; since the pivot `web/vercel.json` rewrites `/nord` and `/nord/:path*`). `web/vercel.json` rewrites `/nordconvert/:path*` to `/:path*`; serving `editor.html` at `/nordconvert/editor` may need a rewrite entry, and the portfolio proxy's matcher and headers (CSP, Permissions-Policy) were not checked. Changes to `vercel.json` headers, the proxy or the portfolio are ask-first.
 10. **Windows USB MIDI.** Whether the Stage 4 is class compliant without the Nord driver is not stated.
 
 ### Candidate questions for the user (architecture or scope)

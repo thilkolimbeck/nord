@@ -1,10 +1,10 @@
 /**
- * The program a fresh editor starts from: every field at the converter's neutral template value
+ * The program a fresh editor starts from: every field at the neutral template's value
  * (the Stage 4 layout default, scene I sections and layers off), then the synth section and its
  * layer A switched on, category None, no source file.
  */
-import { NS4_LAYOUT } from '../../engine/layout.ts';
-import { CATEGORY_NONE, SWITCHES_OFF } from '../../engine/template.ts';
+import { NS4_LAYOUT } from '../../ns4/layout.ts';
+import { CATEGORY_NONE, SWITCHES_OFF } from '../../ns4/template.ts';
 import { NS4_KEYS, type Ns4Key } from './keys.ts';
 import type { ProgramSnapshot } from './store.ts';
 

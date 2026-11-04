@@ -1,7 +1,7 @@
 /**
  * Minimal type declarations for the Node built-ins the tests use. The package allows no
- * dependency besides typescript and vite, so @types/node is not installed; engine code under
- * src/ must not use Node APIs at all (engine.test.ts checks its imports).
+ * dependency besides typescript and vite, so @types/node is not installed; code under src/
+ * must not use Node APIs at all (ns4.test.ts and editor/imports.test.ts check its imports).
  */
 declare module 'node:test' {
   interface TestContext {

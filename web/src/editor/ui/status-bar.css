@@ -14,6 +14,6 @@
 /* Blocked, error, not supported: the LED becomes an accent outline. */
 .led.led-alert {
   box-sizing: border-box;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-text);
   background: transparent;
 }

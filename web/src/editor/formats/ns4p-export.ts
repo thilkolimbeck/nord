@@ -1,6 +1,6 @@
 /**
  * The experimental Stage 4 export (plan section 5.4, AC 12): the editor state written as a .ns4p
- * file by patching a donor program, then checked with the converter's own verify step before any
+ * file by patching a donor program, then checked with the verify step of src/ns4/verify.ts before any
  * byte leaves this module. Donor (plan section 11, decision 3): the opened program's bytes when it
  * is format 3.13, the neutral template otherwise. Only the fields whose value differs from the
  * donor are written; every bit no field covers stays as the donor has it.
@@ -9,10 +9,10 @@
  * the snapshot holds it, undecoded bits equal the donor's), not that a Stage 4 accepts the file:
  * the export is untested on hardware, and the UI says so before and after. No DOM.
  */
-import { verify } from '../../engine/convert.ts';
-import { ConversionError, NordFormatError } from '../../engine/errors.ts';
-import { Ns4Program } from '../../engine/program.ts';
-import { CATEGORY_NONE, loadTemplate, TARGET_VERSION } from '../../engine/template.ts';
+import { verify } from '../../ns4/verify.ts';
+import { ConversionError, NordFormatError } from '../../ns4/errors.ts';
+import { Ns4Program } from '../../ns4/program.ts';
+import { CATEGORY_NONE, loadTemplate, TARGET_VERSION } from '../../ns4/template.ts';
 import { NS4_KEYS } from '../model/keys.ts';
 import type { ProgramSnapshot } from '../model/store.ts';
 import { CATEGORY_MAX, safeFileBase } from './preset.ts';
@@ -36,7 +36,7 @@ export interface Exported {
 
 let neutral: Ns4Program | undefined;
 
-/** The neutral template, read once (as the converter page caches it). */
+/** The neutral template, read once. */
 function neutralDonor(): Ns4Program {
   neutral ??= loadTemplate();
   return neutral;

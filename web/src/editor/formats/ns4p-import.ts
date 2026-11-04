@@ -6,9 +6,9 @@
  * The notes tell what the editor plays only as an approximation, or does not play, of the file
  * (plan section 13.6). No DOM.
  */
-import { NordFormatError } from '../../engine/errors.ts';
-import { Ns4Program } from '../../engine/program.ts';
-import { CATEGORY_NONE, TARGET_VERSION } from '../../engine/template.ts';
+import { NordFormatError } from '../../ns4/errors.ts';
+import { Ns4Program } from '../../ns4/program.ts';
+import { CATEGORY_NONE, TARGET_VERSION } from '../../ns4/template.ts';
 import { clampValue, DESCRIPTORS } from '../model/descriptors.ts';
 import { NS4_KEYS, type Ns4Key } from '../model/keys.ts';
 import { activeScene, enabledLayers, sectionOn } from '../model/scene.ts';

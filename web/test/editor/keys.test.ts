@@ -1,7 +1,7 @@
 /** Parameter ids: the generated key list is the engine's Stage 4 layout, in order. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { NS4_LAYOUT } from '../../src/engine/layout.ts';
+import { NS4_LAYOUT } from '../../src/ns4/layout.ts';
 import { expandPattern, isNs4Key, layerKey, layerOf, LAYERS, NS4_KEYS, patternOf } from '../../src/editor/model/keys.ts';
 
 test('NS4_KEYS is the engine layout, in layout order', () => {

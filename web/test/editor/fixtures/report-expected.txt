@@ -1,6 +1,6 @@
 nord stage 4 parameter report, for reading only
 This is not a program file. The Stage 4, Nord Sound Manager and this editor cannot import it.
-program: Warm Pad · nordconvert editor 0.1.0 · 2026-11-03
+program: Warm Pad · nord editor 0.1.0 · 2026-11-03
 category: 5
 baseline: the editor's init program (Stage 4 layout defaults, synth on, layer A on)
 [not verified] = no Stage 4 display label or an unverified meaning; the number is the stored step.

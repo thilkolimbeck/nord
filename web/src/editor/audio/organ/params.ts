@@ -218,7 +218,7 @@ export function vibratoOn(values: ValueReader, layer: OrganLayer): boolean {
  * B3 and B3 Bass: 6.9 Hz, V1/V2/V3 0.12/0.25/0.45 ms (≈ 9, 19, 34 cents), C1–C3 the same with dry
  * (M p.19). Vox: 5.6 Hz, 0.08/0.16/0.3 ms (M p.20). Farf: 6.2 Hz, V1 0.1 ms, V2 0.25 ms, C2 0.2 ms
  * and C3 0.35 ms with dry (M p.21). Pipes: no modulation, a detuned model instead (pipeDetuneCents).
- * Rates and depths are guesses; the type orders are the converter's (unverified).
+ * Rates and depths are guesses; the type orders are the retired Stage 3 converter's (unverified).
  */
 export function scannerSpec(values: ValueReader, layer: OrganLayer, model: OrganModel = modelOf(values, layer)): ScannerSpec {
   if (!vibratoOn(values, layer)) return OFF;

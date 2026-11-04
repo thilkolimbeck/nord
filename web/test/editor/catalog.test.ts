@@ -1,7 +1,7 @@
 /** The piano model catalogue (plan section 13.3): every Stage 4 piano name gets a type, a family and a unique entry. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { PIANO_NAMES } from '../../src/engine/generated/tables-ns4.ts';
+import { PIANO_NAMES } from '../../src/ns4/generated/tables-ns4.ts';
 import {
   classifyPiano, DEFAULT_FAMILY, modelsOfType, PIANO_MODELS, PIANO_TYPES, pianoFamily, pianoModel, pianoType,
 } from '../../src/editor/model/pianos.ts';

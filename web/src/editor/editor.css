@@ -1,6 +1,6 @@
-/* nord-convert Stage 4 editor. Design source of truth: docs/web-design.md, sections "Editor (/nordconvert/editor)"
-   and "Editor: program, organ and piano regions".
-   Fonts and tokens are a copy of web/src/styles.css, kept equal by test/editor/tokens.test.ts. */
+/* nord, the Stage 4 editor. Design source of truth: docs/web-design.md, sections "Tokens", "Type",
+   "Editor (/nord)" and "Editor: program, organ and piano regions". test/editor/tokens.test.ts checks the
+   fonts and tokens. */
 
 /* Fonts: self-hosted OFL woff2, latin subset plus a one-glyph subset for "→" (U+2192, not in
    Google's latin subset). Licences in /fonts/LICENSES/. */
@@ -74,6 +74,10 @@
 }
 
 /* Tokens */
+/* Every colour is defined here, once per theme (light first, dark below); components use
+   only these custom properties. The theme follows prefers-color-scheme, the panel included.
+   --accent is the fill (LEDs, fader fill, held keys, morph dot); text, outlines and the focus ring
+   use --accent-text, which keeps 4.5:1 on the light panel and display. */
 :root {
   color-scheme: light dark;
 
@@ -81,22 +85,29 @@
   --text: #141414;
   --text-muted: #55554f;
   --legend: #6b6b66;
-  --legend-panel: #8a8a84;
   --hairline: #d6d6d0;
 
-  --panel: #1b1b1b;
-  --panel-border: transparent;
-  --panel-hairline: #343434;
-  --panel-text: #e9e9e4;
-  --panel-text-2: #cfcfc9;
-  --display-bg: #0c0c0c;
-  --display-border: #2e2e2e;
+  --panel: #f1f1ee;
+  --panel-border: #d6d6d0;
+  --panel-hairline: #d6d6d0;
+  --panel-text: #141414;
+  --panel-text-2: #3a3a36;
+  --legend-panel: #6b6b66;
+  --display-bg: #e7e7e1;
+  --display-border: #d0d0c9;
   --accent: #ff6a1a;
-  --accent-dim: #b0581f;
-  --key: #262626;
-  --key-border: #333;
-  --segment-off: #2d2d2d;
-  --slot-border: #555;
+  --accent-text: #b04000;
+  --accent-dim: #8a4a14;
+  --focus: #b04000;
+  --key: #ffffff;
+  --key-border: #c9c9c2;
+  --slot-border: #8f8f88;
+  --segment-off: #dcdcd5;
+  --thumb: #141414;
+  --kb-white: #ffffff;
+  --kb-white-border: #c9c9c2;
+  --kb-black: #262626;
+  --kb-black-border: #262626;
 
   --paper: #fbfbf9;
   --paper-border: #d6d6d0;
@@ -117,7 +128,29 @@
     --text-muted: #a6a6a0;
     --legend: #8a8a84;
     --hairline: #2c2c2a;
+
+    --panel: #1b1b1b;
     --panel-border: #2c2c2a;
+    --panel-hairline: #343434;
+    --panel-text: #e9e9e4;
+    --panel-text-2: #cfcfc9;
+    --legend-panel: #8a8a84;
+    --display-bg: #0c0c0c;
+    --display-border: #2e2e2e;
+    --accent: #ff6a1a;
+    --accent-text: #ff6a1a;
+    --accent-dim: #b0581f;
+    --focus: #ff6a1a;
+    --key: #262626;
+    --key-border: #333333;
+    --slot-border: #555555;
+    --segment-off: #2d2d2d;
+    --thumb: #e9e9e4;
+    --kb-white: #e9e9e4;
+    --kb-white-border: #e9e9e4;
+    --kb-black: #262626;
+    --kb-black-border: #333333;
+
     --paper: #1a1a18;
     --paper-border: #2c2c2a;
     --paper-text: #d6d6d0;
@@ -170,11 +203,11 @@ a {
 }
 
 a:hover {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -190,43 +223,12 @@ a:hover {
   color: var(--text-muted);
 }
 
-/* Page: desktop first, max width 1200px, 24px gutter (16px on narrow screens). */
+/* Page: no chrome, the panel uses the full width; 20px around it (12px on narrow screens), plus the
+   safe areas (viewport-fit=cover). */
 .page {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 24px;
+  padding: 20px max(20px, env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom))
+    max(20px, env(safe-area-inset-left));
 }
-
-.site-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px 24px;
-  padding: 20px 0;
-  border-bottom: 1px solid var(--hairline);
-}
-
-.wordmark {
-  font-family: var(--font-mono);
-  font-size: 13px;
-}
-
-.nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 20px;
-  padding: 0;
-  list-style: none;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.03em;
-}
-
-.nav a {
-  text-decoration: none;
-}
-
 
 .visually-hidden {
   position: absolute;
@@ -262,11 +264,7 @@ a:hover {
   transform: none;
 }
 
-/* Instrument panel: dark in both themes. */
-.instrument {
-  margin-top: 32px;
-}
-
+/* Instrument panel: follows the colour scheme like the page. */
 .panel {
   display: flex;
   flex-direction: column;
@@ -276,7 +274,6 @@ a:hover {
   border-radius: 14px;
   background: var(--panel);
   color: var(--panel-text);
-  color-scheme: dark;
 }
 
 .panel-legend {
@@ -323,7 +320,7 @@ a:hover {
 }
 
 .region:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -351,13 +348,13 @@ a:hover {
 
 .badge {
   padding: 0 4px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-text);
   border-radius: 4px;
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.03em;
   line-height: 1.45;
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .region-first {
@@ -445,7 +442,7 @@ a:hover {
   border-radius: 8px;
   background: var(--display-bg);
   font-family: var(--font-display);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 .display-line {
@@ -461,7 +458,7 @@ a:hover {
   border: 0;
   border-radius: 2px;
   background: transparent;
-  color: var(--accent);
+  color: var(--accent-text);
   font-family: var(--font-display);
   font-size: 24px;
   font-weight: 800;
@@ -533,7 +530,16 @@ a:hover {
 }
 
 .layer-key[aria-pressed='true'] {
-  border-color: var(--accent);
+  border-color: var(--accent-text);
+}
+
+/* Unavailable keys (octave at its limit): the key stays, its label fades. */
+.bool-key[aria-disabled='true'] {
+  cursor: default;
+}
+
+.bool-key[aria-disabled='true'] > span {
+  opacity: 0.4;
 }
 
 /* Synth region */
@@ -838,7 +844,7 @@ a:hover {
   margin-top: -3px;
   border: 0;
   border-radius: 2px;
-  background: var(--panel-text);
+  background: var(--thumb);
   transition: background-color var(--transition);
   -webkit-appearance: none;
   appearance: none;
@@ -859,7 +865,7 @@ a:hover {
   height: 12px;
   border: 0;
   border-radius: 2px;
-  background: var(--panel-text);
+  background: var(--thumb);
 }
 
 /* Enum: a flat native select. */
@@ -913,7 +919,25 @@ a:hover {
   justify-content: flex-start;
 }
 
-/* Keyboard region: T3 fills .keyboard-slot (keys styled in ui/keyboard.css). */
+/* Keyboard region: T3 fills .keyboard-slot (keys styled in ui/keyboard.css); octave keys in the head. */
+.kb-head {
+  justify-content: space-between;
+}
+
+.kb-head > .region-legend {
+  min-width: 0;
+}
+
+.octave-keys {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.octave-key {
+  white-space: nowrap;
+}
+
 .keyboard-slot {
   min-width: 0;
   margin-top: 8px;
@@ -926,28 +950,41 @@ a:hover {
   flex-direction: column;
 }
 
-/* Print-out */
+/* Print-out: a compact paper strip at the foot of the panel, collapsed to its last line. */
 .printout {
-  margin: 0 22px;
-  padding: 14px 20px 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 16px;
+  padding: 6px 12px;
   border: 1px solid var(--paper-border);
-  border-top: 0;
-  border-radius: 0 0 6px 6px;
+  border-radius: 6px;
   background: var(--paper);
   color: var(--paper-text);
 }
 
-.printout-legend {
+.printout-legend,
+.printout-toggle {
+  flex: none;
   color: var(--paper-legend);
 }
 
+.printout-toggle:hover {
+  color: var(--paper-text);
+}
+
 .printout-lines {
-  margin-top: 8px;
+  flex: 1 1 320px;
+  min-width: 0;
   padding: 0;
   list-style: none;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.75;
+}
+
+.printout:not(.is-open) .printout-lines > li:not(:last-child) {
+  display: none;
 }
 
 .printout-lines li {
@@ -966,39 +1003,60 @@ a:hover {
   overflow-wrap: anywhere;
 }
 
-/* Sections how, limits, source */
-.instrument + .info {
-  margin-top: 96px;
+/* Colophon: one small legend line at the foot of the panel; "about" opens in place. */
+.colophon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.6em;
+  color: var(--legend-panel);
 }
 
-.info {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-  gap: 16px 32px;
-  padding: 28px 0 40px;
-  border-top: 1px solid var(--hairline);
+.colophon > a:hover {
+  color: var(--panel-text);
 }
 
-.info-heading {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: 0.03em;
-  line-height: 1.55;
+.about > summary {
+  display: inline;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  list-style: none;
+  cursor: pointer;
+  transition: color var(--transition);
 }
 
-.info-copy {
+.about > summary::-webkit-details-marker {
+  display: none;
+}
+
+.about > summary:hover {
+  color: var(--panel-text);
+}
+
+.about[open] {
+  flex-basis: 100%;
+}
+
+.about[open] + .sep {
+  display: none;
+}
+
+.about-copy {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-width: 60ch;
-  font-size: 15px;
+  gap: 8px;
+  max-width: 72ch;
+  padding: 8px 0 12px;
+  line-height: 1.6;
+  text-transform: none;
 }
 
-/* Footer */
-.site-footer {
-  padding: 20px 0 32px;
-  border-top: 1px solid var(--hairline);
+.about-heading {
+  font-size: inherit;
+  font-weight: 400;
+  color: var(--panel-text-2);
+  text-transform: lowercase;
 }
 
 /* Medium widths: synth groups two per row before the stack. */
@@ -1016,19 +1074,75 @@ a:hover {
   }
 }
 
-/* Narrow screens (< 760px): regions stack in one column; layout-only regions show legend and badge;
-   synth groups stay two per row with the fader under its label; the page never scrolls sideways. */
-@media (max-width: 759px) {
-  .page {
-    padding: 0 16px;
+/* Touch: keys, selects, toggles at least 44 x 44px; faders keep their 6px track inside a 44px tall hit
+   area; drawbars 44px wide, scrolling sideways inside the organ region when they do not fit. */
+@media (max-width: 759px), (pointer: coarse) {
+  .bool-key,
+  .layer-key {
+    min-width: 44px;
+    min-height: 44px;
   }
 
-  .instrument {
-    margin-top: 20px;
+  .enum {
+    height: 44px;
+  }
+
+  .fader {
+    height: 44px;
+  }
+
+  .text-button,
+  .about > summary,
+  .colophon > a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .drawbars {
+    /* positioned, so the captions' visually hidden (absolute) names scroll with it instead of widening the page */
+    position: relative;
+    grid-template-columns: repeat(9, minmax(44px, 1fr));
+    max-width: none;
+    padding: 4px;
+    margin: -4px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .fader.drawbar-input {
+    width: 44px;
+  }
+}
+
+/* iOS Safari zooms the page into any form field under 16px: the selects get 16px there only. */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 759px), (pointer: coarse) {
+    .enum {
+      font-size: 16px;
+    }
+  }
+}
+
+/* Narrow screens (< 760px): one column, regions stacked in the order panel.ts sets; layout-only
+   regions show legend and badge; synth groups two per row with the fader under its label; the
+   keyboard sticks to the bottom of the viewport; the page never scrolls sideways. */
+@media (max-width: 759px) {
+  html {
+    /* keeps focused controls clear of the sticky keyboard */
+    scroll-padding-bottom: 200px;
+  }
+
+  .page {
+    padding: 12px max(12px, env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
   }
 
   .panel {
     padding: 12px;
+    border-radius: 0;
   }
 
   .row-display,
@@ -1057,10 +1171,6 @@ a:hover {
 
   .region-groups {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .drawbars {
-    max-width: none;
   }
 
   .strip-faders {
@@ -1095,11 +1205,21 @@ a:hover {
     grid-template-columns: auto auto;
   }
 
-  .printout {
-    margin: 0 12px;
+  .region-keyboard {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+    background: var(--panel);
   }
 
-  .info {
-    grid-template-columns: minmax(0, 1fr);
+  .kb-head {
+    flex-wrap: nowrap;
+  }
+
+  .kb-head > .region-legend {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 }

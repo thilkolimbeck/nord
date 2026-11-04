@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { TEMPLATE_BYTES } from '../../src/engine/index.ts';
+import { TEMPLATE_BYTES } from '../../src/ns4/index.ts';
 import { initProgram } from '../../src/editor/model/init.ts';
 import { NS4_KEYS } from '../../src/editor/model/keys.ts';
 import { ParamStore, type ProgramSnapshot } from '../../src/editor/model/store.ts';

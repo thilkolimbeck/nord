@@ -39,8 +39,10 @@
   flex: 1 1 0;
   min-width: 0;
   height: var(--kb-white-h);
-  background: var(--panel-text);
+  box-sizing: border-box;
+  border: 1px solid var(--kb-white-border);
   border-radius: 0 0 4px 4px;
+  background: var(--kb-white);
 }
 
 .kb-black {
@@ -50,17 +52,18 @@
   width: var(--kb-black-w);
   height: var(--kb-black-h);
   box-sizing: border-box;
-  background: var(--key);
-  border: 1px solid var(--key-border);
+  background: var(--kb-black);
+  border: 1px solid var(--kb-black-border);
 }
 
 .kb-key.is-held {
+  border-color: var(--accent);
   background: var(--accent);
 }
 
-/* Narrow screens: two octaves visible (14 white keys), the rest scrolls inside the region. */
+/* Narrow screens: about 1.5 octaves visible (11 white keys), the rest scrolls inside the region. */
 @media (max-width: 759px) {
   .kb-keys {
-    width: calc(100% * var(--kb-whites) / 14);
+    width: calc(100% * var(--kb-whites) / 11);
   }
 }

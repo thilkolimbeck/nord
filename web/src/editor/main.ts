@@ -1,5 +1,5 @@
 /**
- * Composition root of the Stage 4 editor (/nordconvert/editor): builds the store from the init
+ * Composition root of the Stage 4 editor (/nord): builds the store from the init
  * program and mounts the page, the panel, the display, the synth region, the program, organ and
  * piano regions and the print-out; then wires play input (computer keys, virtual keyboard) through
  * the play bus to the note router, which plays the organ, piano and synth engines on one shared
@@ -32,7 +32,7 @@ import { ParamStore } from './model/store.ts';
 import { mountDisplay } from './ui/display.ts';
 import { mountFileBar } from './ui/file-bar.ts';
 import { mountKeyboard } from './ui/keyboard-view.ts';
-import { renderPage } from './ui/page.ts';
+import { mountColophon, renderPage } from './ui/page.ts';
 import { mountPanel } from './ui/panel.ts';
 import { mountPrintout } from './ui/printout.ts';
 import { type MidiStatusView, mountStatusBar, setMidiStatus } from './ui/status-bar.ts';
@@ -46,6 +46,7 @@ function start(root: HTMLElement): void {
   const synth = mountSynthPanel(panel.synth, store, (key) => display.show(key));
   const regions = panel.mountRegions((key) => display.show(key));
   const printout = mountPrintout(panel.printout);
+  mountColophon(panel.colophon);
 
   // Audio: the context exists only after a gesture; notes wait for it in the gate. The merger in
   // front of the gate joins the note sources, so one source's release cannot end another's note.
@@ -86,7 +87,18 @@ function start(root: HTMLElement): void {
     pointer, legend: panel.keyboardLegend, octaveRange: { min: keys.minOctave, max: keys.maxOctave },
   });
   held.onChange((notes) => keyboard.setHeld(notes));
-  keys.onOctave((octave) => keyboard.setOctave(octave));
+  // The octave keys step the computer keys' octave, which the virtual keys follow; at a limit the key is unavailable.
+  const showOctave = (octave: number): void => {
+    panel.octaveDown.setAttribute('aria-disabled', String(octave <= keys.minOctave));
+    panel.octaveUp.setAttribute('aria-disabled', String(octave >= keys.maxOctave));
+  };
+  keys.onOctave((octave) => {
+    keyboard.setOctave(octave);
+    showOctave(octave);
+  });
+  showOctave(keys.octave);
+  panel.octaveDown.addEventListener('click', () => keys.setOctave(keys.octave - 1));
+  panel.octaveUp.addEventListener('click', () => keys.setOctave(keys.octave + 1));
   void keyLabels(navigator as Parameters<typeof keyLabels>[0]).then((labels) => keyboard.setLabels(labels));
 
   bus.on((e: PlayEvent) => {

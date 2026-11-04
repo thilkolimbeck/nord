@@ -1,90 +1,84 @@
-# Web app design spec (/nordconvert)
+# Web app design spec (/nord)
 
-Approved by Thilko on 2026-10-31 (second mockup). This file is the design source of truth for `web/`. The Style Guide of the portfolio does NOT apply.
+Direction, tokens and type approved by Thilko on 2026-10-31 (second mockup, made for the Stage 3 → Stage 4 converter page); the editor on 2026-11-03 (checkpoint-1 mockup). The converter page was retired when the repository became nord (2026-11-04); its layout spec is in the git history (commit `babed27`). This file is the design source of truth for `web/`. The Style Guide of the portfolio does NOT apply.
 
 ## Direction
 
-- Modern parts (header, intro, sections 02–04, footer): cues from teenage.engineering and nothing.tech. Off-white page, small mono labels, numbered sections, lots of air, hairlines, flat.
-- The converter: a wide vintage-synth instrument strip. Flat colour blocks only.
+- No chrome (2026-11-04): the page opens straight into the instrument. The only texts and links are one small legend line at the foot of the panel (cues from teenage.engineering and nothing.tech: small mono labels, hairlines, flat).
+- The instrument: a wide vintage-synth panel. Flat colour blocks only.
 - Not kitsch: every control-looking element works. No photoreal textures (wood, brushed metal, screws), no scanlines, no CRT glow, no shadows or gradients, no decorative knobs.
 - Never: Nord logos, Nord red panel colour or trade dress; teenage.engineering or Nothing logos, proprietary typefaces (NDot etc.), product imagery.
 
 ## Tokens
 
+Every colour is a CSS custom property in the token block of `web/src/editor/editor.css`, defined once per theme (light first, dark in `@media (prefers-color-scheme: dark)`); components use only these properties (`test/editor/tokens.test.ts` checks that both themes define the same tokens and that no other rule hard-codes a colour). The theme follows `prefers-color-scheme`, without a toggle; the panel switches too. Dark is the look approved on 2026-11-03.
+
 | Token | Light | Dark |
 |---|---|---|
 | page | `#f1f1ee` | `#0f0f0e` |
-| text | `#141414` | `#ecece7` |
-| text-muted | `#55554f` | `#a6a6a0` |
-| legend (labels) | `#6b6b66` on page; `#8a8a84` on panel | `#8a8a84` |
+| text / text-muted | `#141414` / `#55554f` | `#ecece7` / `#a6a6a0` |
+| legend (page) | `#6b6b66` | `#8a8a84` |
 | hairline | `#d6d6d0` | `#2c2c2a` |
-| panel | `#1b1b1b` (both themes) | `#1b1b1b`, plus 1px `#2c2c2a` border |
-| panel hairline | `#343434` | `#343434` |
-| panel text | `#e9e9e4` / `#cfcfc9` | same |
-| display bg | `#0c0c0c`, 1px `#2e2e2e` | same |
-| accent (signal orange) | `#ff6a1a` | `#ff6a1a` |
-| accent dim (display 2nd line) | `#b0581f` | `#b0581f` |
-| key | `#262626`, 1px `#333` | same |
-| segment off | `#2d2d2d` | same |
-| paper (print-out) | `#fbfbf9`, 1px `#d6d6d0` | `#1a1a18`, 1px `#2c2c2a`, text `#d6d6d0` |
+| panel | `#f1f1ee`, 1px `#d6d6d0` border | `#1b1b1b`, 1px `#2c2c2a` border |
+| panel hairline (region borders; regions have no fill) | `#d6d6d0` | `#343434` |
+| panel text / panel text 2 | `#141414` / `#3a3a36` | `#e9e9e4` / `#cfcfc9` |
+| legend on panel | `#6b6b66` (4.73:1 on panel) | `#8a8a84` |
+| display bg | `#e7e7e1`, 1px `#d0d0c9` | `#0c0c0c`, 1px `#2e2e2e` |
+| accent (fills: LEDs, fader fill, held keys, morph dot) | `#ff6a1a` | `#ff6a1a` |
+| accent text (display, badges, pressed-key border, alert outline, link hover) | `#b04000` (4.73:1 on display bg, 5.2:1 on panel) | `#ff6a1a` |
+| accent dim (display 2nd line, `nv`/`coarse`/`≈` markers) | `#8a4a14` (5.5:1 on display bg, 6.0:1 on panel) | `#b0581f` |
+| focus ring | `#b04000` | `#ff6a1a` |
+| key (button), 1px border; hover border | `#ffffff`, `#c9c9c2`; `#8f8f88` | `#262626`, `#333333`; `#555555` |
+| segment off (LED off, fader track) | `#dcdcd5` | `#2d2d2d` |
+| fader thumb | `#141414` | `#e9e9e4` |
+| keyboard white keys | `#ffffff`, 1px `#c9c9c2` | `#e9e9e4` |
+| keyboard black keys | `#262626` | `#262626`, 1px `#333333` |
+| paper (print-out), text, legend | `#fbfbf9`, 1px `#d6d6d0`, `#141414`, `#6b6b66` | `#1a1a18`, 1px `#2c2c2a`, `#d6d6d0`, `#8a8a84` |
 
-Theme follows `prefers-color-scheme`. Accent is the only hue; error state uses accent + the word "error" + a filled error segment row, never a second red.
+The accent `#ff6a1a` reaches only 2.5:1 on the light panel, so in light every accent used as text, outline or focus ring is accent text `#b04000`; fills stay `#ff6a1a`. Native controls follow the theme (`color-scheme: light dark` on the root, the panel included). Accent is the only hue; error state uses accent + the word "error", never a second red.
 
 ## Type (all OFL, self-hosted woff2 in `web/public/fonts/`, latin subset)
 
 - Funnel Sans 400/500: headline (24px/500, line-height 1.2, max 32ch) and body copy (13–16px).
-- IBM Plex Mono 400/500: legends 11px (+0.03em tracking, lowercase), print-out 12px/1.75, header wordmark 13px.
+- IBM Plex Mono 400/500: legends 11px (+0.03em tracking, lowercase), print-out 12px/1.75.
 - Doto 600/800: the display only (line 1: 24px/800; lines 2–3: 14px/600).
 - Legends and labels are lowercase. Sentence case in copy.
 
-## Layout (top to bottom)
-
-1. Header row, hairline below: wordmark `st3 → st4` + muted `program converter` left; nav right: `01 convert  02 how  03 limits  04 source` (in-page anchors).
-2. Headline: "Turn a Nord Stage 3 program into a Stage 4 program. In your browser."
-3. Sub line (text-muted, 13px): "Your file never leaves this page. Not yet tested on a real Stage 4: load results into a free slot." (hardware note; keep until the Gab test passes)
-4. Instrument strip (`#1b1b1b`, radius 14px):
-   - top legend row, panel hairline below: left `st-34  program converter`, right `engine <version> · stage 3 3.00–3.04 → stage 4 3.13`.
-   - four sections in a grid `1.1fr 2fr 1fr auto`, each with a legend on top, separated by panel hairlines:
-     - **program in**: dashed 1px `#555` drop slot, text "drop .ns3f / or choose" (choose = the visually-hidden `<input type=file accept=".ns3f">`'s label). Drag-over: border turns accent. Dropping more than one file: no conversion, display shows the error "one file at a time".
-     - **display**: line 1 program name from the file name (uppercase in Doto, truncated with an ellipsis); line 2 `ns3f <ver> → ns4p 3.13`; line 3 state: `insert program` (idle) · `ready · press convert` · `panel a+b → layers a+b · ok` (which panels/layers come from the conversion) · `error · <short reason>`. The full error message from the engine goes to the print-out.
-     - **result**: three rows of 6 segments with label + count: `warn` (segments lit `#e9e9e4`, one per warning, capped at 6, count shown), `notes` (switched-off notes), `error` (accent, all 6 lit on error).
-     - **keys** 2×2, 58px squares, radius 9px, each with a 6px status LED top-left and a lowercase label bottom-left:
-       - `convert` (accent fill; enabled once a file is loaded; LED lit when a file is ready),
-       - `save` (downloads `<name>.ns4p`; LED accent when an output exists),
-       - `clear` (resets to idle),
-       - `notes` (toggles the switched-off notes in the print-out; LED lit while shown).
-       Keys are real `<button>`s with focus-visible ring 2px accent, offset 2px; disabled keys stay dark at reduced opacity of their label only.
-5. Print-out (paper), attached under the strip (inset 22px each side, no top border, bottom radius 6px): legend line `print-out · N warnings · M notes on switched-off parts` (the notes part is a button that toggles like the notes key); numbered lines `001  <message>` in mono. Show the engine's messages verbatim (they may be shortened only by CSS wrapping). Idle state: one line "nothing printed yet".
-6. Sections `02 how it works`, `03 limits`, `04 source`: modern style, numbered mono heading, short copy:
-   - 02: runs locally in the browser; both panels convert (panel A → layers A, panel B → layers B in scene I); values go through Stage 4's own tables; a donor template fills what's unknown.
-   - 03: link to the README's limitation tables in the public repo; one-paragraph summary (synth presets not in the Stage 4 library, pianos and samples by id when the Stage 4 has them, most morphs, osc configurations without a Stage 4 counterpart).
-   - 04: AGPL-3.0, link to the public GitHub repo, credits: opennord, ns4decode (MIT), ns3-program-viewer.
-7. Footer legend line: `agpl-3.0 · source on github · not affiliated with clavia or nord`.
-
 ## Behaviour
 
-- One file per conversion; no batch.
 - No network requests after load except same-origin static assets; no analytics.
-- Keyboard: the drop slot is reachable (label for the file input), keys are buttons, Enter/Space work.
-- Motion: none beyond 150 ms colour transitions; respect `prefers-reduced-motion`.
+- Keyboard: every control is reachable and works with the keyboard; keys are real `<button>`s (Enter/Space) with a focus-visible ring 2px accent, offset 2px; disabled keys stay dark at reduced opacity of their label only.
+- Motion: none beyond 150 ms colour transitions; respect `prefers-reduced-motion` (transitions drop to 0).
 
-## Editor (/nordconvert/editor)
+## Editor (/nord)
 
-Approved by Thilko on 2026-11-03 (checkpoint-1 mockup). Same tokens, fonts and rules as above; the editor is a sibling of the converter.
+Approved by Thilko on 2026-11-03 (checkpoint-1 mockup). Same tokens, fonts and rules as above.
 
-### Layout (desktop, max width 1200px, 24px page gutter)
+### Layout
 
-1. Header row as on the converter: wordmark `st-4 → editor` + muted `sound programming`; nav right: `converter` (link to `/nordconvert/`), `how`, `limits`, `source`.
-2. One instrument panel (`panel` token, radius 14px, padding 16px) holding, top to bottom:
-   - **legend row** (panel hairline below): left `st-4 editor · sound programming · audio is an approximation`; right the status strip: `audio` with a 6px LED (accent = running, segment-off = idle, accent outline + word `blocked`/`error` otherwise) and a `start audio` key while not running; `midi` LED + short status (`connected: <name>` · `no inputs` · `permission denied` · `not supported in this browser` · `enable midi` key); `panic` key (also Esc).
-   - **row 1** (grid `1.6fr 1fr`): the **display** (display tokens; line 1 program name, Doto 24px/800, accent, editable via a visually plain text input; line 2 last touched parameter `layer · label · value unit · min–max` in accent-dim Doto 14px; line 3 state: `live` / `not verified` / `edited N` / import info) and the **file keys** box (legend `files`): keys `save`, `load`, `app-preset ↓` (download), `import` (app preset), `open .ns4p`, `stage-4-programm (experimentell) ↓`, `report ↓`. Keys use the converter's key style (`key` token, radius 7px, 11px mono label), smaller than the converter's 58px squares: height 28px, padding 0 10px.
-   - **row 2** (grid three equal columns): `program`, `organ`, `piano` regions.
-   - **row 3**: the `synth` region, full width.
-   - **row 4** (grid two equal columns): `extern`, `layer effects · rotary`.
-   - **row 5**: the `keyboard` region, full width.
-3. Print-out (paper) attached under the panel as on the converter: import notes, validation errors, export results; idle line "nothing printed yet".
-4. Sections `how`, `limits`, `source` below, modern style as on the converter (limits: approximation, what is not implemented, export experimental and untested on hardware, browser support).
-5. Footer legend line: `agpl-3.0 · source on github · not affiliated with clavia or nord`.
+Revised 2026-11-04: no chrome. No header, no sections, no separate footer; the skip links (`skip to program`, `skip to synth`, `skip to keyboard`) stay, visually hidden until focused, and the page has a visually hidden `h1`.
+
+Desktop (≥ 760px): body margin 0, page padding 20px (plus the safe-area insets, `viewport-fit=cover`), no max width: the panel uses the full width and the regions keep their grids.
+
+1. One instrument panel (`panel` token, 1px panel border, radius 14px, padding 16px) holding, top to bottom:
+   - **legend row** (panel hairline below): left `st-4 editor · sound programming · audio is an approximation`; right the status strip: `audio` with a 6px LED (accent = running, segment-off = idle, accent-text outline + word `blocked`/`error` otherwise) and a `start audio` key while not running; `midi` LED + short status (`connected: <name>` · `no inputs` · `permission denied` · `not supported in this browser` · `enable midi` key); `panic` key (also Esc).
+   - **row 1** (grid `1.6fr 1fr`): the **display** (display tokens; line 1 program name, Doto 24px/800, accent text, editable via a visually plain text input; line 2 last touched parameter `layer · label · value unit · min–max` in accent-dim Doto 14px; line 3 state: `live` / `not verified` / `edited N` / import info) and the **file keys** box (legend `files`): keys `save`, `load`, `app-preset ↓` (download), `import` (app preset), `open .ns4p`, `stage-4-programm (experimentell) ↓`, `report ↓`. Keys use the `key` token, radius 7px, an 11px mono label, height 28px, padding 0 10px.
+   - **row 2**: `program`, full width.
+   - **row 3** (grid two equal columns): `organ`, `piano`.
+   - **row 4**: the `synth` region, full width.
+   - **row 5** (grid two equal columns): `extern`, `layer effects`.
+   - **row 6**: the `keyboard` region, full width, with the octave keys `oct −` `oct +` at the right of its legend line (they step the computer keys' octave, which the virtual keys follow; at a limit the key is `aria-disabled` and its label fades).
+   - **print-out** (paper, radius 6px, compact strip): numbered lines `001  <message>` in mono, messages verbatim, shortened only by CSS wrapping: import notes, validation errors, export results; idle line "nothing printed yet". Collapsed it shows only its last line; with more than one line its legend is a toggle `print-out (n)` (`print-out · error (n)` for errors) that opens all lines. A new error opens it by itself. Every print is announced politely in full.
+   - **colophon**: one legend line (11px mono, legend colour): `approximation of the nord stage 4 · not affiliated with clavia or nord · about · source · agpl-3.0`. `source` links to https://github.com/thilkolimbeck/nord; `about` is a `<details>`/`<summary>` that opens in place (on its own row) to short paragraphs in the same small style: how it works, limits (approximation, what is not implemented, export experimental and untested on hardware, browser support) and source (AGPL-3.0, credits: opennord, ns4decode (MIT)).
+
+Narrow screens (< 760px; checked at 375×812 and 390×844):
+
+- Page padding 12px (plus safe areas), panel radius 0, panel padding 12px.
+- One column, in this order: display and files, synth, organ, piano, program, extern and layer effects (legend + badge only), keyboard, print-out, colophon. `ui/panel.ts` reorders the DOM on the breakpoint (matchMedia), so the tab order follows the screen.
+- The keyboard region sticks to the bottom of the viewport (`position: sticky; bottom: 0`, panel background, safe-area padding below); its legend line is cut with an ellipsis so the octave keys stay on the same line; about 1.5 octaves (11 white keys) are visible, the rest scrolls inside the region. `scroll-padding-bottom` keeps focused controls clear of it.
+- The page never scrolls sideways (`scrollWidth === clientWidth`); wide content scrolls inside its region (keyboard, drawbars).
+
+Touch (< 760px, or any `pointer: coarse` device such as a phone in landscape or a tablet): keys, selects, toggles and text buttons are at least 44×44px; faders keep their 6px track inside a 44px tall hit area; drawbars are 44px wide and scroll sideways inside the organ region when they do not fit. On iOS Safari only, selects use 16px text so the page does not zoom into them.
 
 ### Regions
 
@@ -103,12 +97,12 @@ Approved by Thilko on 2026-11-03 (checkpoint-1 mockup). Same tokens, fonts and r
 ### Keyboard region
 
 - Legend: `keyboard · <low>–<high> · keys a s d f g h j k l · w e t y u o p · z/x octave` (show real key labels where the browser reports them).
-- Keys: 3 octaves on desktop (C3–C6 default, shifting with octave), white keys panel-text colour `#e9e9e4` with bottom radius 4px, black keys `#262626` with 1px `#333`; a held key turns accent (both white and black). Height 96px white, 60px black. Velocity from the vertical position (top soft, bottom loud).
-- Narrow screens (< 760px): regions stack in one column; layout-only regions show legend + badge only; synth groups 2 per row; keyboard shows 2 octaves with horizontal scroll inside the region (the page itself never scrolls sideways).
+- Keys: 3 octaves on desktop (C3–C6 default, shifting with octave), keyboard white and black key tokens (see Tokens), white keys with bottom radius 4px; a held key turns accent (both white and black). Height 96px white, 60px black. Velocity from the vertical position (top soft, bottom loud). Octave keys `oct −` `oct +` in the legend line.
+- Narrow screens (< 760px): regions stack in one column; layout-only regions show legend + badge only; synth groups 2 per row; the keyboard sticks to the bottom of the viewport and shows about 1.5 octaves with horizontal scroll inside the region (the page itself never scrolls sideways).
 
 ### Rules carried over
 
-No shadows, gradients (the fader fill is a hard stop, not a gradient), textures or decorative knobs; every control-looking element works; no Nord logo, Nord red, Nord typefaces or product images; theme follows `prefers-color-scheme` (the panel is dark in both themes); motion only 150ms colour transitions, respecting `prefers-reduced-motion`.
+No shadows, gradients (the fader fill is a hard stop, not a gradient), textures or decorative knobs; every control-looking element works; no Nord logo, Nord red, Nord typefaces or product images; theme follows `prefers-color-scheme`, the panel included; motion only 150ms colour transitions, respecting `prefers-reduced-motion`.
 
 ### Editor: program, organ and piano regions (2026-11-03, live)
 

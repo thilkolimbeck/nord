@@ -1,7 +1,7 @@
 /** App presets in browser storage (plan section 5.1, AC 10): slots, working copy, blocked and full storage. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { TEMPLATE_BYTES } from '../../src/engine/index.ts';
+import { TEMPLATE_BYTES } from '../../src/ns4/index.ts';
 import { initProgram } from '../../src/editor/model/init.ts';
 import type { ProgramSnapshot } from '../../src/editor/model/store.ts';
 import { importNs4p } from '../../src/editor/formats/ns4p-import.ts';

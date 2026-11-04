@@ -1,5 +1,5 @@
 {
-  "source": "nordconv.labels.ns4_label, written by tools/gen_editor_tables.py",
+  "source": "ns4data.labels.ns4_label (tools/ns4data), written by tools/gen_editor_tables.py",
   "fields": {
     "common.splitEnabled": {"min":0,"labels":["off","on"]},
     "common.splitEnabledLow": {"min":0,"labels":["off","on"]},

@@ -1,8 +1,8 @@
 /**
  * Module rules of the editor (plan section 1): nothing imports ui/ or main.ts; audio/ and midi/
  * never import ui/, formats/ or each other; model/ and formats/ use no DOM or Web Audio; the model
- * reads only its generated tables, two engine modules and the engine's generated tables (piano
- * names, read only); no Node imports and no network APIs
+ * reads only its generated tables, two ns4 modules and the ns4 generated tables (piano names,
+ * read only); outside src/editor/ only ns4/ is imported; no Node imports and no network APIs
  * anywhere; the page shell has no inline script or style (strict CSP).
  */
 import assert from 'node:assert/strict';
@@ -19,7 +19,7 @@ const FILES: ReadonlyArray<{ path: string; code: string; imports: string[] }> = 
     return { path, code: text.replace(/\/\/.*|\/\*[\s\S]*?\*\//g, ''), imports };
   });
 
-/** The editor-relative path an import of `from` resolves to ('../engine/x.ts' for engine modules). */
+/** The editor-relative path an import of `from` resolves to ('../ns4/x.ts' for the Stage 4 program code). */
 function resolve(from: string, spec: string): string {
   const parts = from.split('/').slice(0, -1);
   for (const seg of spec.split('/')) {
@@ -55,12 +55,13 @@ test('dependency rules between editor modules', () => {
       const to = top(target);
       assert.ok(to !== 'ui' || from === 'ui' || f.path === 'main.ts', `${f.path} imports ${target}`);
       assert.notEqual(target, 'main.ts', `${f.path} imports main.ts`);
+      assert.ok(!target.startsWith('../') || target.startsWith('../ns4/'), `${f.path} imports ${target}`);
       if (from === 'audio' || from === 'midi') {
         assert.ok(!['ui', 'formats', from === 'audio' ? 'midi' : 'audio'].includes(to), `${f.path} imports ${target}`);
       }
       if (from === 'model') {
         assert.ok(['model', 'generated'].includes(to)
-          || ['../engine/layout.ts', '../engine/template.ts', '../engine/generated/tables-ns4.ts'].includes(target),
+          || ['../ns4/layout.ts', '../ns4/template.ts', '../ns4/generated/tables-ns4.ts'].includes(target),
           `${f.path} imports ${target}`);
       }
       if (from === 'generated') assert.fail(`${f.path} imports ${target}`);
@@ -84,7 +85,7 @@ test('no network APIs in editor code', () => {
 });
 
 test('the editor page has no inline script, style or handler', () => {
-  const html = readFileSync(new URL('../../editor/index.html', import.meta.url), 'utf8');
+  const html = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
   assert.equal(scripts.length, 1);
   for (const [, attrs, body] of scripts) {

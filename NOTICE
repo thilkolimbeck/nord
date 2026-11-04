@@ -1,4 +1,4 @@
-nord-convert
+nord
 Copyright (C) 2026 Thilko Limbeck
 
 This program is free software: you can redistribute it and/or modify it under
@@ -14,16 +14,20 @@ Third-party material
 
 OpenNord (AGPL-3.0-or-later)
   https://github.com/simonflore/opennord, commit ed66f7f.
-  nordconv/_layout_ns3.py, _layout_ns4.py, _tables_ns3.py and _tables_ns4.py
-  are generated from OpenNord's TypeScript tables by tools/gen_layouts.py.
-  The CBIN container rules, block-chain decoding, Stage 3 format fix-ups
-  (nordconv/source.py) and parts of the mapping follow OpenNord's code
-  (src/lib/clavia, src/lib/ns3, src/lib/ns4, src/lib/migrate).
+  tools/ns4data/_layout_ns4.py and _tables_ns4.py, and
+  web/src/ns4/generated/layout-ns4.ts and tables-ns4.ts, are generated from
+  OpenNord's TypeScript tables by tools/gen_layouts.py;
+  web/src/editor/generated/display-ns4.ts is generated from them by
+  tools/gen_editor_tables.py. The CBIN container rules and the block-chain
+  decoding in web/src/ns4/, and the label lookup order of
+  tools/ns4data/labels.py and its port in the editor, follow OpenNord's code
+  (src/lib/clavia, src/lib/ns4).
 
 ns4decode by Randy, with ns4gui by guyd789 (MIT)
-  OpenNord's Stage 4 offset map, value tables and name tables, which reach
-  nordconv/_layout_ns4.py and nordconv/_tables_ns4.py, are ported from
-  ns4decode. templates/regressionTest.ns4p is ns4decode's regression fixture.
+  OpenNord's Stage 4 offset map, value tables and name tables, which reach the
+  generated files above, are ported from ns4decode.
+  templates/regressionTest.ns4p, bundled as
+  web/src/ns4/generated/template-bytes.ts, is ns4decode's regression fixture.
 
   MIT License
 
@@ -47,17 +51,6 @@ ns4decode by Randy, with ns4gui by guyd789 (MIT)
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
-
-ns3-program-viewer by Christian Florentz (GPL-3.0-or-later)
-  https://github.com/chris55/ns3-program-viewer, commit 55105f4.
-  Consulted as format documentation for the Stage 3; no code is copied into
-  the converter or the web app. web/test/fixtures/ns3/ holds copies of its
-  test fixtures (the .ns3f programs in its test/ns3 folder), unchanged. They
-  are test data only: the web engine's parity test reads them, and
-  web/test/golden/golden.json holds the Python converter's results for them,
-  plus damaged and edited variants of one of them as test inputs.
-  They are not part of the converter, the web build or its output. Their
-  licence is web/test/fixtures/ns3/LICENSE-ns3-program-viewer.
 
 Fonts in web/public/fonts/ (SIL Open Font License 1.1)
   Self-hosted woff2 subsets, as served by Google Fonts, used by the web app.

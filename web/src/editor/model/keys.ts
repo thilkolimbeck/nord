@@ -1,6 +1,6 @@
 /**
  * Parameter ids of the editor: the Stage 4 layout keys, typed. The generated NS4_KEYS list is
- * the layout of web/src/engine/generated/layout-ns4.ts in the same order (keys.test.ts checks it).
+ * the layout of web/src/ns4/generated/layout-ns4.ts in the same order (keys.test.ts checks it).
  */
 import { NS4_KEYS } from '../generated/display-ns4.ts';
 

@@ -3,14 +3,14 @@
  * field equals the snapshot and every bit no field covers equals the donor's; an unedited export
  * of an opened 3.13 file keeps its body byte for byte; a bad snapshot throws ExportError and
  * yields no bytes; a 3.07 file falls back to the neutral template. Also the file keys' export and
- * report actions and the onLoad callback. Only web/test/golden/golden.json is read: never the
- * private golden-local.json or fixtures/presets/.
+ * report actions and the onLoad callback. The opened files come from the test corpus (corpus.ts);
+ * no private file is read.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildCbin } from '../../src/engine/cbin.ts';
-import { loadTemplate, Ns4Program, TEMPLATE_BYTES } from '../../src/engine/index.ts';
-import { NS4_LAYOUT } from '../../src/engine/layout.ts';
+import { buildCbin } from '../../src/ns4/cbin.ts';
+import { loadTemplate, Ns4Program, TEMPLATE_BYTES } from '../../src/ns4/index.ts';
+import { NS4_LAYOUT } from '../../src/ns4/layout.ts';
 import { DESCRIPTORS } from '../../src/editor/model/descriptors.ts';
 import { initProgram } from '../../src/editor/model/init.ts';
 import { NS4_KEYS, type Ns4Key } from '../../src/editor/model/keys.ts';
@@ -19,12 +19,10 @@ import { ExportError, exportExperimentalNs4p, ns4pFileName } from '../../src/edi
 import { importNs4p } from '../../src/editor/formats/ns4p-import.ts';
 import { toPresetJson } from '../../src/editor/formats/preset.ts';
 import { FileActions, type FileLike } from '../../src/editor/ui/files.ts';
-import { expectedOutput, golden } from '../golden.ts';
+import { CORPUS, RANDOM } from './corpus.ts';
 
-/** Every public golden output that converts (the manifest's reference alone is only a patch base). */
-const OUTPUTS: ReadonlyArray<readonly [string, Uint8Array]> = [...Object.entries(golden.fixtures), ...Object.entries(golden.cases)]
-  .filter(([name, entry]) => entry.error === undefined && !name.startsWith('presets/'))
-  .map(([name, entry]) => [name, expectedOutput(entry)] as const);
+/** Opened files: the random corpus programs (format 3.13, bank 0, location 0, own undecoded bits). */
+const OUTPUTS = RANDOM;
 
 /** A body-sized mask with a 1 bit for every bit no layout field covers. */
 const UNCOVERED: Uint8Array = (() => {
@@ -63,8 +61,8 @@ function edited(s: ProgramSnapshot): ProgramSnapshot {
   return store.snapshot();
 }
 
-test('the public golden outputs are found', () => {
-  assert.ok(OUTPUTS.length > 500, String(OUTPUTS.length));
+test('the corpus programs are found', () => {
+  assert.ok(OUTPUTS.length >= 64, String(OUTPUTS.length));
 });
 
 test('from the init program: fields equal the snapshot, undecoded bits equal the neutral template', () => {
@@ -83,7 +81,7 @@ test('from the init program: fields equal the snapshot, undecoded bits equal the
   assert.equal(exportExperimentalNs4p(initProgram()).edits, 2);
 });
 
-test('from an opened 3.13 golden file with edits: fields equal the snapshot, undecoded bits equal the file', () => {
+test('from an opened 3.13 file with edits: fields equal the snapshot, undecoded bits equal the file', () => {
   for (const [name, bytes] of OUTPUTS.slice(0, 40)) {
     const s = edited(importNs4p(`${name}.ns4p`, bytes).snapshot);
     const out = exportExperimentalNs4p(s);
@@ -101,12 +99,12 @@ test('from an opened 3.13 golden file with edits: fields equal the snapshot, und
 });
 
 test('an unedited export of an opened 3.13 file keeps its body byte for byte', () => {
-  for (const [name, bytes] of [['template', TEMPLATE_BYTES] as const, ...OUTPUTS]) {
+  for (const [name, bytes] of CORPUS) {
     const out = exportExperimentalNs4p(importNs4p(`${name}.ns4p`, bytes).snapshot);
     assert.equal(out.edits, 0, name);
     assert.deepEqual(Ns4Program.fromBytes(out.bytes).body, Ns4Program.fromBytes(bytes).body, name);
   }
-  // A golden output is a converter output (bank 0, location 0): the whole file comes back.
+  // A corpus program has bank 0 and location 0, as an export writes them: the whole file comes back.
   const [name, bytes] = OUTPUTS[0]!;
   assert.deepEqual(exportExperimentalNs4p(importNs4p(`${name}.ns4p`, bytes).snapshot).bytes, bytes);
 });
@@ -227,7 +225,7 @@ test('file keys: report downloads plain text named after the program', () => {
   assert.equal(type, 'text/plain;charset=utf-8');
   assert.equal(typeof data, 'string');
   assert.ok(/^nord stage 4 parameter report, for reading only\n/.test(data as string), data as string);
-  assert.ok(/program: Warm Pad · nordconvert editor 0\.1\.0 · 2026-11-03\n/.test(data as string), data as string);
+  assert.ok(/program: Warm Pad · nord editor 0\.1\.0 · 2026-11-03\n/.test(data as string), data as string);
   assert.ok(/\n1 changed value\n$/.test(data as string), data as string);
 });
 

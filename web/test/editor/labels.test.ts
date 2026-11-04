@@ -1,11 +1,11 @@
 /**
- * The editor's port of nordconv/labels.py ns4_label against Python's own output
+ * The editor's port of tools/ns4data/labels.py ns4_label against Python's own output
  * (labels-golden.json, written by tools/gen_editor_tables.py).
  */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { NS4_LAYOUT } from '../../src/engine/layout.ts';
+import { NS4_LAYOUT } from '../../src/ns4/layout.ts';
 import { initProgram } from '../../src/editor/model/init.ts';
 import { isNs4Key, NS4_KEYS, type Ns4Key } from '../../src/editor/model/keys.ts';
 import { labelDeps, ns4Label, rawOf, type ValueReader } from '../../src/editor/model/labels.ts';

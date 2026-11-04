@@ -2,9 +2,11 @@
 
 For the brief `.claude/briefs/nord-stage4-editor-mvp.md` (approved 2026-11-03), based on `docs/editor-feasibility.md` (Phase 1). Status: plan, nothing built. Section 9 lists the five questions for the user; everything else is a proposal the orchestrator can change.
 
+> **Pivot to nord (2026-11-04).** The Stage 3 → Stage 4 converter is retired (Nord Sound Manager converts Stage 3 programs natively since v9.10) and the editor is the whole site, served at https://www.thilkolimbeck.com/nord (Vite base `/nord/`) from `web/index.html`. Paths moved: `web/editor/index.html` → `web/index.html`; `web/src/engine/` → `web/src/ns4/` (Stage 4 code only; `verify` from `convert.ts` is now `verify.ts`); `nordconv/_layout_ns4.py`, `_tables_ns4.py` and `labels.py` → `tools/ns4data/`. What this document says about the converter (its page `web/index.html`, `web/src/main.ts`, `web/src/state.ts`, `web/src/styles.css`, the `nordconv` package, `docs/phase1-mapping.md`, the `/nordconvert` URLs and the dev rewrite, `web/test/golden/golden.json`, `parity.test.ts`, `engine.test.ts`, `state.test.ts`) is historical; those files are in the git history up to commit `babed27`. The .ns4p import and export tests now read a generated corpus (`web/test/editor/corpus.ts`) instead of the converter's golden outputs, and `tokens.test.ts` checks `editor.css` alone.
+
 Notation: `{L}` is a synth layer `A`, `B` or `C`; `synth{L}Sound.fltFreq` means the three keys `synthASound.fltFreq`, `synthBSound.fltFreq`, `synthCSound.fltFreq`. "M p.N" is the manual page as cited in the feasibility doc.
 
-## 0. Page, build and hosting
+## 0. Page, build and hosting (historical: the two-page site under /nordconvert)
 
 ### Findings that shape the plan
 
@@ -40,7 +42,7 @@ Notation: `{L}` is a synth layer `A`, `B` or `C`; `synth{L}Sound.fltFreq` means 
 ## 1. Module map
 
 ```
-web/editor/index.html                 page shell: landmarks and empty region containers
+web/index.html                        page shell: landmarks and empty region containers
 web/src/editor/
   main.ts                             composition root: builds store, audio host, input, MIDI, UI; wires events
   editor.css
@@ -57,7 +59,7 @@ web/src/editor/
     preset.ts  storage.ts  ns4p-import.ts  ns4p-export.ts  report.ts  base64.ts
   ui/                                 the only DOM-rendering code
     dom.ts  controls.ts  panel.ts  synth-panel.ts  display.ts  keyboard-view.ts  status-bar.ts  file-bar.ts  printout.ts  files.ts
-tools/gen_editor_tables.py            Python, reads nordconv/_tables_ns4.py and nordconv/labels.py
+tools/gen_editor_tables.py            Python, reads tools/ns4data/_tables_ns4.py and tools/ns4data/labels.py
 tests/test_editor_tables.py           Python: the committed TS module and label golden equal a fresh render
 ```
 
@@ -68,8 +70,8 @@ main.ts ─► ui ─► model, input, formats, audio (types, status), midi (sta
 audio   ─► model, input/events
 midi    ─► input/events
 input   ─► model/keys (types only)
-formats ─► model, ../engine
-model   ─► generated, ../engine/layout.ts, ../engine/template.ts (read only)
+formats ─► model, ../ns4
+model   ─► generated, ../ns4/layout.ts, ../ns4/template.ts, ../ns4/generated/tables-ns4.ts (read only)
 ```
 
 Rules, enforced by `web/test/editor/imports.test.ts` (reads the sources, as `engine.test.ts` already does for the engine): nothing imports `ui/` or `main.ts`; `audio/` and `midi/` never import `ui/`, `formats/` or each other; `model/` and `formats/` import no DOM or Web Audio globals; no `node:` imports; no network APIs. The engine is used read-only: `index.ts` exports (`Ns4Program`, `loadTemplate`, `verify`, `ConversionError`, `NordFormatError`, `OUTPUT_SUFFIX`) plus direct imports of `NS4_LAYOUT` (`layout.ts`), `CATEGORY_NONE`, `TARGET_VERSION` (`template.ts`) and `crc32`, `buildCbin` (`cbin.ts`, tests only). No engine file changes. If only `index.ts` may be imported, re-exporting those names is the ask-first alternative.
@@ -83,7 +85,7 @@ export type SynthLayer = 'A' | 'B' | 'C';
 export function layerKey<P extends string>(layer: SynthLayer, pattern: P): Ns4Key; // 'synth{L}Sound.fltFreq'
 export function isNs4Key(s: string): s is Ns4Key;
 
-// model/labels.ts: port of nordconv/labels.py ns4_label
+// model/labels.ts: port of tools/ns4data/labels.py ns4_label
 export interface ValueReader { get(key: Ns4Key): number }
 export function ns4Label(key: Ns4Key, value: number, values: ValueReader): string | null;
 
@@ -471,7 +473,7 @@ Recommendation: no layer effects in the MVP. They are their own panel section, 1
 {
   "format": "nord-stage4-editor-preset",
   "schema": 1,
-  "app": "nordconvert editor 0.1.0",
+  "app": "nord editor 0.1.0",
   "layout": { "model": "Nord Stage 4", "fields": 955, "keysCrc32": "9c1e2a7b" },
   "name": "Warm Pad",
   "category": 17,
@@ -548,7 +550,7 @@ Plain text, UTF-8, `<name> parameter report.txt`:
 ```
 nord stage 4 parameter report, for reading only
 This is not a program file. The Stage 4, Nord Sound Manager and this editor cannot import it.
-program: Warm Pad · nordconvert editor 0.1.0 · 2026-11-03
+program: Warm Pad · nord editor 0.1.0 · 2026-11-03
 baseline: the editor's init program (Stage 4 layout defaults, synth on, layer A on)
 [not verified] = no Stage 4 display table; the number is the stored step.
 
@@ -696,7 +698,7 @@ Follow-ups, not MVP: AudioWorklet oscillators and ladder filter; layer effects (
 3. Export donor: keep the imported `.ns4p` bytes in memory and in the app preset, use them as donor for 3.13 files, neutral template otherwise (option b).
 4. Oscillators: Wave type and Samples mode stay selectable and are exported, marked "not implemented"; that layer is silent with a note (option a).
 5. Morphs: read-only; stored, exported, reported; non-zero morphs shown as an indicator on the parent control (option a).
-6. Visual direction: the checkpoint-1 mockup, specified in `docs/web-design.md`, section "Editor (/nordconvert/editor)".
+6. Visual direction: the checkpoint-1 mockup, specified in `docs/web-design.md`, section "Editor (/nord)".
 7. Stored-only controls (`stored` status) stay editable, marked "no sound in MVP". Panic shortcut: Esc. Autosave of the working copy to localStorage: yes, separate from named presets. Export asks for a confirmation that names it experimental and untested on hardware.
 
 ## 12. Status (2026-11-03, after T7)

@@ -5,7 +5,7 @@
  * Fields of a live region take their status from curated.ts (or a stored or layout group's);
  * scene II copies take kind, options, status and note from their scene I twin (plan section 13.1).
  */
-import { NS4_LAYOUT, type Encoding } from '../../engine/layout.ts';
+import { NS4_LAYOUT, type Encoding } from '../../ns4/layout.ts';
 import { FIELD_DEP, FIELD_VALUE_TABLE, PORT_NAMES } from '../generated/display-ns4.ts';
 import { CURATED, type Curated } from './curated.ts';
 import { isNs4Key } from './keys.ts';

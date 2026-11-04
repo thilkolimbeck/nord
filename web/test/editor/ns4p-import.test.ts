@@ -1,46 +1,20 @@
 /**
- * Opening a .ns4p file (plan section 5.2, AC 11): for the bundled template and every public golden
- * output, the snapshot holds exactly the reader's values for all 955 fields, all in range, and the
- * file's bytes as the source. Bad files give the engine's message. Only web/test/golden/golden.json
- * is read: never the private golden-local.json or fixtures/presets/.
+ * Opening a .ns4p file (plan section 5.2, AC 11): for the bundled template and every program of
+ * the test corpus (corpus.ts), the snapshot holds exactly the reader's values for all 955 fields,
+ * all in range, and the file's bytes as the source. Bad files give the reader's message. No
+ * private file is read.
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { writeBits } from '../../src/engine/bits.ts';
-import { buildCbin } from '../../src/engine/cbin.ts';
-import { loadTemplate, NordFormatError, Ns4Program, TEMPLATE_BYTES } from '../../src/engine/index.ts';
-import { NS4_LAYOUT } from '../../src/engine/layout.ts';
+import { writeBits } from '../../src/ns4/bits.ts';
+import { buildCbin } from '../../src/ns4/cbin.ts';
+import { loadTemplate, NordFormatError, Ns4Program, TEMPLATE_BYTES } from '../../src/ns4/index.ts';
+import { NS4_LAYOUT } from '../../src/ns4/layout.ts';
 import { DESCRIPTORS } from '../../src/editor/model/descriptors.ts';
 import { NS4_KEYS } from '../../src/editor/model/keys.ts';
 import { ParamStore } from '../../src/editor/model/store.ts';
 import { ImportError, importNs4p, MAX_NS4P_BYTES, programName } from '../../src/editor/formats/ns4p-import.ts';
-
-interface Entry { patch?: Array<[number, string]>; error?: unknown }
-const golden = JSON.parse(readFileSync(new URL('../golden/golden.json', import.meta.url), 'utf8')) as {
-  reference: string; fixtures: Record<string, Entry>; cases: Record<string, Entry>;
-};
-
-function fromBase64(text: string): Uint8Array {
-  return Uint8Array.from(atob(text), (ch) => ch.charCodeAt(0));
-}
-
-/** The golden manifest's reference output with an entry's patch runs written over it. */
-function expectedOutput(entry: Entry): Uint8Array {
-  const out = fromBase64(golden.reference);
-  for (const [offset, hex] of entry.patch ?? []) {
-    for (let i = 0; i < hex.length; i += 2) out[offset + i / 2] = parseInt(hex.slice(i, i + 2), 16);
-  }
-  return out;
-}
-
-/** The bundled template and every expected output. The manifest's reference alone is only the patch base (stale CRC). */
-const OUTPUTS: ReadonlyArray<readonly [string, Uint8Array]> = [
-  ['template', TEMPLATE_BYTES],
-  ...[...Object.entries(golden.fixtures), ...Object.entries(golden.cases)]
-    .filter(([name, entry]) => entry.error === undefined && !name.startsWith('presets/'))
-    .map(([name, entry]) => [name, expectedOutput(entry)] as const),
-];
+import { CORPUS } from './corpus.ts';
 
 function engineMessage(bytes: Uint8Array): string {
   try {
@@ -52,12 +26,12 @@ function engineMessage(bytes: Uint8Array): string {
   return assert.fail('the engine accepted the file');
 }
 
-test('the public golden outputs are found', () => {
-  assert.ok(OUTPUTS.length > 500, String(OUTPUTS.length));
+test('the corpus is built', () => {
+  assert.ok(CORPUS.length > 60, String(CORPUS.length));
 });
 
-test('every field equals the reader, in range, for the template and every public golden output', () => {
-  for (const [name, bytes] of OUTPUTS) {
+test('every field equals the reader, in range, for the template and every corpus program', () => {
+  for (const [name, bytes] of CORPUS) {
     const program = Ns4Program.fromBytes(bytes);
     const { snapshot, notes } = importNs4p(`${name}.ns4p`, bytes);
     assert.equal(Object.keys(snapshot.values).length, 955, name);

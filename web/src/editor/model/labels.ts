@@ -1,5 +1,5 @@
 /**
- * Stage 4 display labels of field values: a port of nordconv/labels.py ns4_label.
+ * Stage 4 display labels of field values: a port of tools/ns4data/labels.py ns4_label.
  *
  * The tables are keyed by the field's raw bits as ns4decode reads them, which for the synth osc
  * knobs is only the field's low bits; a raw beyond the port width has no label. Lookup order
@@ -8,7 +8,7 @@
  * wave on the osc bank). The editor stores decoded values, so each lookup encodes the value
  * first, as the layout does when a program is written.
  */
-import { NS4_LAYOUT } from '../../engine/layout.ts';
+import { NS4_LAYOUT } from '../../ns4/layout.ts';
 import { DEP_TABLES, ENUM_TABLES, FIELD_DEP, FIELD_ENUM, FIELD_VALUE_TABLE, VALUE_TABLES } from '../generated/display-ns4.ts';
 import type { Ns4Key } from './keys.ts';
 

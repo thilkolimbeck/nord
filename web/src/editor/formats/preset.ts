@@ -11,9 +11,9 @@
  * refused, never guessed. Unknown top-level keys are ignored; unknown value keys are refused.
  * No DOM.
  */
-import { crc32 } from '../../engine/cbin.ts';
-import { NordFormatError } from '../../engine/errors.ts';
-import { Ns4Program } from '../../engine/program.ts';
+import { crc32 } from '../../ns4/cbin.ts';
+import { NordFormatError } from '../../ns4/errors.ts';
+import { Ns4Program } from '../../ns4/program.ts';
 import { DESCRIPTORS } from '../model/descriptors.ts';
 import { NS4_KEYS, type Ns4Key } from '../model/keys.ts';
 import type { ProgramSnapshot, SourceProgram } from '../model/store.ts';
@@ -73,7 +73,7 @@ export function toPresetDocument(s: ProgramSnapshot, appVersion: string): Preset
   return {
     format: PRESET_FORMAT,
     schema: PRESET_SCHEMA,
-    app: `nordconvert editor ${appVersion}`,
+    app: `nord editor ${appVersion}`,
     layout: { model: LAYOUT_MODEL, fields: NS4_KEYS.length, keysCrc32: KEYS_CRC32 },
     name: s.name,
     category: s.category,

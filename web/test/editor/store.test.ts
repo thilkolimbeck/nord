@@ -1,7 +1,7 @@
 /** The central store: clamping, per-key and batch notifications, snapshots; the init program; multi-field edits. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { loadTemplate } from '../../src/engine/template.ts';
+import { loadTemplate } from '../../src/ns4/template.ts';
 import { setLayerEnabled, setOscBank } from '../../src/editor/model/actions.ts';
 import { initProgram } from '../../src/editor/model/init.ts';
 import { NS4_KEYS } from '../../src/editor/model/keys.ts';

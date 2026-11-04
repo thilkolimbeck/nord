@@ -1,7 +1,7 @@
 /** The app preset (plan section 5.1, AC 10): lossless JSON round trip and the validation messages. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { Ns4Program, TEMPLATE_BYTES } from '../../src/engine/index.ts';
+import { Ns4Program, TEMPLATE_BYTES } from '../../src/ns4/index.ts';
 import { DESCRIPTORS } from '../../src/editor/model/descriptors.ts';
 import { initProgram } from '../../src/editor/model/init.ts';
 import { NS4_KEYS, type Ns4Key } from '../../src/editor/model/keys.ts';
@@ -98,7 +98,7 @@ test('the document: format, schema, layout, values in layout order, deterministi
   const d = toPresetDocument(s, '0.1.0');
   assert.equal(d.format, PRESET_FORMAT);
   assert.equal(d.schema, PRESET_SCHEMA);
-  assert.equal(d.app, 'nordconvert editor 0.1.0');
+  assert.equal(d.app, 'nord editor 0.1.0');
   assert.deepEqual(d.layout, { model: 'Nord Stage 4', fields: 955, keysCrc32: KEYS_CRC32 });
   assert.ok(/^[0-9a-f]{8}$/.test(KEYS_CRC32), KEYS_CRC32);
   assert.deepEqual(Object.keys(d.values), [...NS4_KEYS]);

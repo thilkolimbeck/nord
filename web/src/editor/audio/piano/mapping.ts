@@ -121,7 +121,7 @@ export const TIMBRE_BANDS = 4;
 // ---------------------------------------------------------------------------------------------
 // Layer settings
 
-/** piano{X}.acoustic bits (assumed; the default 1 is string res on, as the converter assumes). */
+/** piano{X}.acoustic bits (assumed; the default 1 is string res on, as the retired Stage 3 converter assumed). */
 export const STRING_RES_BIT = 1;
 export const SOFT_RELEASE_BIT = 2;
 

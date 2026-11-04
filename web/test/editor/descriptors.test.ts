@@ -1,7 +1,7 @@
 /** Parameter descriptors: kinds, ranges, units, statuses and formatting (plan sections 3.1 and 3.2). */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { NS4_LAYOUT } from '../../src/engine/layout.ts';
+import { NS4_LAYOUT } from '../../src/ns4/layout.ts';
 import { CURATED } from '../../src/editor/model/curated.ts';
 import {
   clampValue, descriptorOf, DESCRIPTORS, formatValue, optionsFor, type ParamDescriptor, toSi, verified,

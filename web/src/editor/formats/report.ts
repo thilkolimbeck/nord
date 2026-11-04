@@ -8,7 +8,7 @@
  * then every group of layer a, b and c. Fields without a control (morph amounts, scene II copies,
  * reserved and opaque fields) follow in layout order. No DOM.
  */
-import { CATEGORY_NONE } from '../../engine/template.ts';
+import { CATEGORY_NONE } from '../../ns4/template.ts';
 import { type ParamDescriptor, DESCRIPTORS, formatValue } from '../model/descriptors.ts';
 import { LAYERS, NS4_KEYS, type Ns4Key, type SynthLayer, layerOf } from '../model/keys.ts';
 import type { ValueReader } from '../model/labels.ts';
@@ -103,7 +103,7 @@ export function parameterReport(s: ProgramSnapshot, baseline: ProgramSnapshot, o
   const out: string[] = [
     'nord stage 4 parameter report, for reading only',
     NOT_A_PROGRAM,
-    `program: ${name} · nordconvert editor ${opts.appVersion} · ${opts.date}`,
+    `program: ${name} · nord editor ${opts.appVersion} · ${opts.date}`,
     `category: ${s.category === CATEGORY_NONE ? `${s.category} (none)` : String(s.category)}`,
   ];
   if (s.source !== null) {

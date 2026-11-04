@@ -7,7 +7,7 @@
  * These helpers map a scene-free field name ('common.sectionEnableOrg', 'synth.layerEnableSyn') to
  * the layout key of a scene, and read the section and layer switches of the active scene, so the
  * router, the engines and the panels never name an `_I` or `_II` key themselves (plan section 13).
- * Layer enable masks: bit 0 = layer A, bit 1 = layer B, bit 2 = layer C, as the converter writes
+ * Layer enable masks: bit 0 = layer A, bit 1 = layer B, bit 2 = layer C, as the retired converter wrote
  * them (unverified on hardware). Pure: no DOM, no Web Audio.
  */
 import { isNs4Key, type Ns4Key, type SynthLayer } from './keys.ts';

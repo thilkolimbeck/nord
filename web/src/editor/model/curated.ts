@@ -35,14 +35,14 @@ const NO_SOUND = 'not in the MVP sound; stored and exported';
 const OFF_1_2_3: readonly EnumOption[] = [
   { value: 0, label: 'off' }, { value: 1, label: '1' }, { value: 2, label: '2' }, { value: 3, label: '3' }];
 const LAYER_NAMES: readonly EnumOption[] = [{ value: 0, label: 'A' }, { value: 1, label: 'B' }, { value: 2, label: 'C' }];
-/** Layer enable mask bits: bit 0 = layer A, bit 1 = layer B (as the converter writes them), bit 2 = layer C. */
+/** Layer enable mask bits: bit 0 = layer A, bit 1 = layer B (as the retired Stage 3 converter wrote them), bit 2 = layer C. */
 const LAYER_BITS: readonly EnumOption[] = [{ value: 1, label: 'A' }, { value: 2, label: 'B' }, { value: 4, label: 'C' }];
-const MASK_NOTE = 'bit order from the converter (bit 0 = A, bit 1 = B, bit 2 = C), unverified on hardware';
+const MASK_NOTE = 'bit order assumed (bit 0 = A, bit 1 = B, bit 2 = C), unverified on hardware';
 
 const OFF_ON: readonly EnumOption[] = [{ value: 0, label: 'off' }, { value: 1, label: 'on' }];
 const AB_NAMES: readonly EnumOption[] = LAYER_NAMES.slice(0, 2);
 const AB_BITS: readonly EnumOption[] = LAYER_BITS.slice(0, 2);
-const AB_MASK_NOTE = 'bit order from the converter (bit 0 = A, bit 1 = B), unverified on hardware';
+const AB_MASK_NOTE = 'bit order assumed (bit 0 = A, bit 1 = B), unverified on hardware';
 const FOCUS_NOTE = 'manual p.15, 43: the layer the panel edits';
 const ROUTER = 'zones are read at the next note-on';
 const APPROX = 'the browser approximates this; no Nord sound';
@@ -146,11 +146,11 @@ export const CURATED: Readonly<Record<string, Curated>> = {
   ...organLayer('A'),
   ...organLayer('B'),
   'organ.vibratoTypeB3': { label: 'b3 vib type', status: 'unverified', kind: 'enum',
-    options: labels(['V1', 'C1', 'V2', 'C2', 'V3', 'C3']), note: 'M p.19: B3 and B3 Bass scanner; value order from the converter' },
+    options: labels(['V1', 'C1', 'V2', 'C2', 'V3', 'C3']), note: 'M p.19: B3 and B3 Bass scanner; value order assumed' },
   'organ.vibratoTypeVox': { label: 'vox vib type', status: 'unverified', kind: 'enum',
-    options: labels(['V1', 'V2', 'V3']), note: 'M p.20; value order from the converter; the depths are a guess' },
+    options: labels(['V1', 'V2', 'V3']), note: 'M p.20; value order assumed; the depths are a guess' },
   'organ.vibratoTypeFarfisa': { label: 'farf vib type', status: 'unverified', kind: 'enum',
-    options: labels(['V1', 'V2', 'C2', 'C3']), note: 'M p.21; value order from the converter; the depths are a guess' },
+    options: labels(['V1', 'V2', 'C2', 'C3']), note: 'M p.21; value order assumed; the depths are a guess' },
   'organ.polyPercEnable': { label: 'poly perc', status: 'live', kind: 'bool', options: OFF_ON,
     note: 'M p.20: percussion on every stroke, not single-triggered; no display table' },
   'organ.effectsLeslieEnable': { label: 'rotary', status: 'live', note: 'M p.53: the organ goes through the rotary speaker' },

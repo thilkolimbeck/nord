@@ -5,7 +5,7 @@
  * an autosaved working copy apart from the named presets (plan section 11, decision 7). Results and errors go to the print-out, a short line to the display. Browser
  * storage problems never touch the editor's state, and downloads work without storage.
  *
- * File reads use a generation counter like the converter's Session: a read that finishes after a
+ * File reads use a generation counter: a read that finishes after a
  * newer file action is dropped. The only DOM use is the download helper.
  */
 import type { ParamStore, ProgramSnapshot } from '../model/store.ts';
@@ -35,7 +35,7 @@ export interface FileDeps {
   readonly storage?: StorageLike | null;
   /** The editor version written into presets. Default: the build's package version. */
   readonly appVersion?: string;
-  /** Default: a Blob and an <a download> click, as the converter does. */
+  /** Default: a Blob and an <a download> click. */
   readonly download?: Download;
   /** Delay between the last change and the autosave, in ms. */
   readonly autosaveDelay?: number;

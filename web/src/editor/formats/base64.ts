@@ -1,9 +1,9 @@
 /**
  * Base64 for the app preset's embedded source program (plan section 5.1): an encoder, and a
  * strict decoder that refuses anything but canonical standard-alphabet base64 with padding. The
- * decoding itself is the engine's dependency-free decoder (web/src/engine/base64.ts), used read only.
+ * decoding itself is the engine's dependency-free decoder (web/src/ns4/base64.ts), used read only.
  */
-import { decodeBase64 } from '../../engine/base64.ts';
+import { decodeBase64 } from '../../ns4/base64.ts';
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const CANONICAL = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;

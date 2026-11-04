@@ -1,25 +1,22 @@
-import { fileURLToPath } from 'node:url';
 import { defineConfig, type Connect, type Plugin } from 'vite';
 import pkg from './package.json' with { type: 'json' };
 
-const BASE = '/nordconvert/';
-const EDITOR = `${BASE}editor`;
+const BASE = '/nord/';
+const ROOT_URL = BASE.slice(0, -1);
 
 /**
- * Locally, /nordconvert/editor (no trailing slash) would fall through to the converter page:
- * Vite's HTML fallback maps only /editor/ to editor/index.html. Rewrite it, in dev and preview,
- * so the link the converter will carry works as it does in production.
+ * Production serves the editor at /nord, without a trailing slash (web/vercel.json rewrites it).
+ * Vite's dev and preview servers answer only below /nord/, so rewrite /nord to /nord/ there too.
  */
-function editorRewrite(): Plugin {
+function rootRewrite(): Plugin {
   const rewrite: Connect.NextHandleFunction = (req, _res, next) => {
     const url = req.url ?? '';
     const q = url.search(/[?#]/);
-    const path = q === -1 ? url : url.slice(0, q);
-    if (path === EDITOR || path === `${EDITOR}/`) req.url = `${EDITOR}/index.html${q === -1 ? '' : url.slice(q)}`;
+    if ((q === -1 ? url : url.slice(0, q)) === ROOT_URL) req.url = `${BASE}${q === -1 ? '' : url.slice(q)}`;
     next();
   };
   return {
-    name: 'nordconvert-editor-rewrite',
+    name: 'nord-root-rewrite',
     configureServer(server) {
       server.middlewares.use(rewrite);
     },
@@ -29,23 +26,16 @@ function editorRewrite(): Plugin {
   };
 }
 
-// Served as a static site under /nordconvert/: the converter (index.html) and the Stage 4 editor
-// (editor/index.html, built to dist/editor/index.html). The engine version in the strip's legend
-// comes from package.json at build time.
+// Served as a static site under /nord/: the Stage 4 editor (index.html). The app version in the
+// presets and the report comes from package.json at build time.
 export default defineConfig({
   base: BASE,
   define: {
     __ENGINE_VERSION__: JSON.stringify(pkg.version),
   },
-  plugins: [editorRewrite()],
+  plugins: [rootRewrite()],
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    rolldownOptions: {
-      input: {
-        main: fileURLToPath(new URL('./index.html', import.meta.url)),
-        editor: fileURLToPath(new URL('./editor/index.html', import.meta.url)),
-      },
-    },
   },
 });

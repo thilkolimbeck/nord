@@ -7,7 +7,7 @@
  * below is guessed from the names and marked unverified. No Nord sample is used or bundled:
  * the editor synthesizes an approximation per family. Pure: no DOM, no Web Audio.
  */
-import { PIANO_NAMES } from '../../engine/generated/tables-ns4.ts';
+import { PIANO_NAMES } from '../../ns4/generated/tables-ns4.ts';
 
 /** Piano types in the order of `piano{X}.bank` (table 244-3: Grand, Upright, Electric, Clav, Digital, Misc). */
 export type PianoType = 'grand' | 'upright' | 'electric' | 'clav' | 'digital' | 'misc';
